@@ -43,6 +43,7 @@ class NaturalBackgroundWrapper(gym.ObservationWrapper):
             
         print(f"Found {len(self.video_files)} videos in {video_folder}")
         self.cap = None
+        self.last_augmented_obs = None  # store latest augmented frame for render()
         
     def _load_random_video(self):
         if self.cap is not None:
@@ -77,8 +78,38 @@ class NaturalBackgroundWrapper(gym.ObservationWrapper):
 
         # 4. Replace background
         obs[mask] = bg_frame[mask]
+        self.last_augmented_obs = obs.copy()
         
         return obs
+
+    def render(self, mode="rgb_array"):
+        if mode == "rgb_array" and self.last_augmented_obs is not None:
+            return self.last_augmented_obs
+        return self.env.render(mode=mode)
+
+
+class GaussianNoiseWrapper(gym.ObservationWrapper):
+    """
+    Adds Gaussian noise to the observation (before grayscale/framestack).
+    Must be applied to RGB environments.
+    """
+    def __init__(self, env: gym.Env, std: float = 25.0) -> None:
+        super().__init__(env)
+        self.std = std
+        self.last_augmented_obs = None
+        print(f"Gaussian Noise Wrapper: std={std}")
+    
+    def observation(self, obs: np.ndarray) -> np.ndarray:
+        # Add Gaussian noise to RGB observation
+        noise = np.random.normal(0, self.std, obs.shape).astype(np.float32)
+        noisy_obs = np.clip(obs.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        self.last_augmented_obs = noisy_obs.copy()
+        return noisy_obs
+    
+    def render(self, mode="rgb_array"):
+        if mode == "rgb_array" and self.last_augmented_obs is not None:
+            return self.last_augmented_obs
+        return self.env.render(mode=mode)
 
 
 class StickyActionEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):

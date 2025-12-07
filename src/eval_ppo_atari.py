@@ -10,11 +10,13 @@ import torch
 import torch.nn as nn
 import tyro
 from torch.distributions.categorical import Categorical
+import matplotlib.pyplot as plt
 
 from atari_wrappers import (  # isort:skip
     ClipRewardEnv,
     EpisodicLifeEnv,
     FireResetEnv,
+    GaussianNoiseWrapper,
     MaxAndSkipEnv,
     NaturalBackgroundWrapper,
     NoopResetEnv,
@@ -39,21 +41,21 @@ class Args:
     """path to the trained model"""
     env_id: str = "BreakoutNoFrameskip-v4"
     """the id of the environment"""
-    num_episodes: int = 10
+    num_episodes: int = 30
     """number of episodes to evaluate"""
     natural_video_folder: str = None
     """path to folder containing background videos for natural variant (None for standard env)"""
     deterministic: bool = False
     """if toggled, use deterministic actions (argmax) instead of sampling"""
+    gaussian_noise: bool = False
+    """if toggled, add maximum Gaussian noise (std=50) to observations"""
 
 
-def make_env(env_id, capture_video, run_name, natural_video_folder=None):
+def make_env(env_id, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
     def thunk():
-        if capture_video:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_id)
+        # Always create RGB env when we may capture or inject backgrounds
+        env = gym.make(env_id, render_mode="rgb_array") if capture_video else gym.make(env_id)
+
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
@@ -63,11 +65,23 @@ def make_env(env_id, capture_video, run_name, natural_video_folder=None):
             env = FireResetEnv(env)
         # Note: We don't use ClipRewardEnv during evaluation
         # to get true game scores instead of clipped {-1, 0, 1}
-        
-        # Add natural background wrapper BEFORE resizing and grayscaling
+
+        # Add natural background before resizing/grayscale so it is visible in videos
         if natural_video_folder is not None:
             env = NaturalBackgroundWrapper(env, natural_video_folder)
         
+        # Add Gaussian noise if enabled (max noise: std=50)
+        if gaussian_noise:
+            env = GaussianNoiseWrapper(env, std=50)
+
+        # Ensure recorded video plays at the expected speed (60fps base / 4-frame skip = 15fps)
+        if env.metadata.get("render_fps") in (None, 0):
+            env.metadata["render_fps"] = 15
+
+        # Capture video after the background is injected (keeps color in recordings)
+        if capture_video:
+            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
         env = gym.wrappers.FrameStack(env, 4)
@@ -121,6 +135,8 @@ if __name__ == "__main__":
     
     # Create run name with natural/standard indicator
     env_type = "natural" if args.natural_video_folder else "standard"
+    if args.gaussian_noise:
+        env_type += "_gaussian_noise"
     run_name = f"{args.env_id}__{args.exp_name}__{env_type}__{args.seed}__{int(time.time())}"
     
     print(f"Evaluating model: {args.model_path}")
@@ -129,6 +145,8 @@ if __name__ == "__main__":
     print(f"Deterministic: {args.deterministic}")
     if args.natural_video_folder:
         print(f"Video folder: {args.natural_video_folder}")
+    if args.gaussian_noise:
+        print(f"Gaussian noise: enabled (std=50)")
     print("-" * 50)
 
     # TRY NOT TO MODIFY: seeding
@@ -141,7 +159,7 @@ if __name__ == "__main__":
 
     # env setup - use vectorized env with num_envs=1 for proper shape handling
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.capture_video, run_name, args.natural_video_folder)]
+        [make_env(args.env_id, args.capture_video, run_name, args.natural_video_folder, args.gaussian_noise)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
@@ -175,8 +193,9 @@ if __name__ == "__main__":
         if "final_info" in info:
             for final_info in info["final_info"]:
                 if final_info and "episode" in final_info:
-                    episode_reward = final_info["episode"]["r"]
-                    episode_length = final_info["episode"]["l"]
+                    # Convert to Python scalars to avoid numpy formatting issues
+                    episode_reward = float(final_info["episode"]["r"])
+                    episode_length = int(final_info["episode"]["l"])
                     episode_rewards.append(episode_reward)
                     episode_lengths.append(episode_length)
                     episodes_completed += 1
@@ -195,5 +214,40 @@ if __name__ == "__main__":
     print(f"Min Reward: {np.min(episode_rewards):.2f}")
     print(f"Max Reward: {np.max(episode_rewards):.2f}")
     
+    # Plot reward visualization
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+    
+    # Episode rewards over time
+    axes[0].plot(range(1, len(episode_rewards) + 1), episode_rewards, marker='o', linestyle='-', linewidth=2)
+    axes[0].axhline(y=np.mean(episode_rewards), color='r', linestyle='--', label=f'Mean: {np.mean(episode_rewards):.2f}')
+    axes[0].fill_between(range(1, len(episode_rewards) + 1), 
+                         np.mean(episode_rewards) - np.std(episode_rewards),
+                         np.mean(episode_rewards) + np.std(episode_rewards),
+                         alpha=0.2, color='r', label=f'±1 Std Dev')
+    axes[0].set_xlabel('Episode')
+    axes[0].set_ylabel('Reward')
+    axes[0].set_title('Reward per Episode')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+    
+    # Reward distribution histogram
+    axes[1].hist(episode_rewards, bins=10, edgecolor='black', alpha=0.7)
+    axes[1].axvline(x=np.mean(episode_rewards), color='r', linestyle='--', linewidth=2, label=f'Mean: {np.mean(episode_rewards):.2f}')
+    axes[1].axvline(x=np.median(episode_rewards), color='g', linestyle='--', linewidth=2, label=f'Median: {np.median(episode_rewards):.2f}')
+    axes[1].set_xlabel('Reward')
+    axes[1].set_ylabel('Frequency')
+    axes[1].set_title('Reward Distribution')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    # Save figure
+    plot_path = f"videos/{run_name}/evaluation_results.png"
+    os.makedirs(os.path.dirname(plot_path), exist_ok=True)
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"\n✓ Reward plot saved to {plot_path}")
+    plt.show()
+    
     envs.close()
-    print(f"\n✓ Evaluation complete! Videos saved to videos/{run_name}/")
+    print(f"✓ Evaluation complete! Videos saved to videos/{run_name}/")
