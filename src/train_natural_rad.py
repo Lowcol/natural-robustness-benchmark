@@ -14,8 +14,7 @@ from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 
-# NOTE: Ensure your wrapper file is named 'wrappers.py' or 'atari_wrappers.py' to match this import
-from wrappers import (  
+from atari_wrappers import (  
     ClipRewardEnv,
     EpisodicLifeEnv,
     FireResetEnv,
@@ -43,8 +42,10 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    natural_video_folder: str = "videos-noise" # Default folder for easier running
+    natural_video_folder: str = None
     """path to folder containing background videos for natural variant"""
+    log_aug_samples: bool = True
+    """if toggled, log a sample of raw vs augmented observations to TensorBoard"""
 
     # Algorithm specific arguments
     env_id: str = "BreakoutNoFrameskip-v4"
@@ -115,11 +116,7 @@ def rad_random_crop(imgs, size=84):
 
 def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
     def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos-training-rad/{run_name}")
-        else:
-            env = gym.make(env_id)
+        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
@@ -131,6 +128,14 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
         # Add natural background wrapper BEFORE resizing and grayscaling
         if natural_video_folder is not None:
             env = NaturalBackgroundWrapper(env, natural_video_folder)
+
+        # Ensure recorded video plays at expected speed (60fps base / 4-frame skip = 15fps)
+        if capture_video and env.metadata.get("render_fps") in (None, 0):
+            env.metadata["render_fps"] = 15
+
+        # Record after augmentation so the saved video shows the natural background
+        if capture_video and idx == 0:
+            env = gym.wrappers.RecordVideo(env, f"videos-training-rad/{run_name}")
         
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
@@ -230,6 +235,7 @@ if __name__ == "__main__":
     next_obs, _ = envs.reset(seed=args.seed)
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(args.num_envs).to(device)
+    logged_aug_vis = False
 
     for iteration in range(1, args.num_iterations + 1):
         # Annealing the rate if instructed to do so.
@@ -248,6 +254,21 @@ if __name__ == "__main__":
                 # --- APPLY RAD (Random Crop) ---
                 # We crop the observation BEFORE the agent sees it
                 aug_obs = rad_random_crop(next_obs)
+                # Optionally log a sample of raw vs augmented for env 0 (once)
+                if args.log_aug_samples and not logged_aug_vis:
+                    raw_img = next_obs[0].detach().cpu()
+                    aug_img = aug_obs[0].detach().cpu()
+
+                    def to_chw(img):
+                        # If channels are last, move them to CHW for TensorBoard
+                        if img.ndim == 3 and img.shape[0] not in (1, 3, 4):
+                            img = img.permute(2, 0, 1)
+                        return img
+
+                    writer.add_image("debug/raw_obs_env0", to_chw(raw_img) / 255.0, global_step)
+                    writer.add_image("debug/aug_obs_env0", to_chw(aug_img) / 255.0, global_step)
+                    logged_aug_vis = True
+
                 action, logprob, _, value = agent.get_action_and_value(aug_obs)
                 # -------------------------------
                 values[step] = value.flatten()
