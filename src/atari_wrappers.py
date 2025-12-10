@@ -22,8 +22,14 @@ except ImportError:
 
 class NaturalBackgroundWrapper(gym.ObservationWrapper):
     """
-    Replaces the black background of the Atari game with a video from a folder.
-    Must be applied to RGB environments (before Grayscale wrapper).
+    Replaces the black background of the Atari game with image sequences (DAVIS style).
+    Expects a directory structure like:
+    root_folder/
+      ├── bear/
+      │   ├── 00000.jpg
+      │   ├── 00001.jpg
+      ├── camel/
+      │   ├── ...
     """
     def __init__(self, env: gym.Env, video_folder: str) -> None:
         super().__init__(env)
@@ -31,53 +37,78 @@ class NaturalBackgroundWrapper(gym.ObservationWrapper):
             raise ImportError("opencv-python is required for NaturalBackgroundWrapper")
             
         self.video_folder = video_folder
-        # Recursively search for video files in all subdirectories
-        self.video_files = []
-        for root, dirs, files in os.walk(video_folder):
-            for f in files:
-                if f.endswith(('.mp4', '.avi', '.mkv')) and not f.endswith(('.part', '.ytdl')):
-                    self.video_files.append(os.path.join(root, f))
+        self.video_dirs = []
+        self.current_frames = []
+        self.frame_idx = 0
+        self.last_augmented_obs = None
+
+        # 1. Search for subdirectories (each subfolder is a "video" sequence)
+        if os.path.exists(video_folder):
+            # entries are os.DirEntry objects
+            self.video_dirs = [f.path for f in os.scandir(video_folder) if f.is_dir()]
         
-        if not self.video_files:
-            raise RuntimeError(f"No videos found in {video_folder}!")
-            
-        print(f"Found {len(self.video_files)} videos in {video_folder}")
-        self.cap = None
-        self.last_augmented_obs = None  # store latest augmented frame for render()
+        # Fallback: if no subfolders found, maybe the images are in the root folder?
+        if not self.video_dirs and os.path.exists(video_folder):
+             self.video_dirs = [video_folder]
+
+        if not self.video_dirs:
+            raise RuntimeError(f"No subfolders or images found in {video_folder}!")
+
+        print(f"Found {len(self.video_dirs)} image sequences in {video_folder}")
         
-    def _load_random_video(self):
-        if self.cap is not None:
-            self.cap.release()
+    def _load_random_sequence(self):
+        # Pick a random folder (e.g. "bear")
+        selected_dir = np.random.choice(self.video_dirs)
         
-        video_path = np.random.choice(self.video_files)
-        self.cap = cv2.VideoCapture(video_path)
+        # Find all images in that folder
+        # We look for .jpg, .jpeg, and .png
+        images = []
+        for ext in ['*.jpg', '*.jpeg', '*.png']:
+             # We use 'glob' to find files matching pattern
+             import glob
+             images.extend(glob.glob(os.path.join(selected_dir, ext)))
+        
+        # Sort them so they play in order (00000, 00001, ...)
+        self.current_frames = sorted(images)
+        
+        if not self.current_frames:
+            print(f"Warning: Empty folder {selected_dir}, picking another...")
+            self._load_random_sequence() # Retry
+        
+        self.frame_idx = 0
         
     def reset(self, **kwargs):
-        self._load_random_video()
+        self._load_random_sequence()
         return super().reset(**kwargs)
 
     def observation(self, obs: np.ndarray) -> np.ndarray:
-        # 1. Read next video frame
-        ret, bg_frame = self.cap.read()
-        
-        # If video ends, loop it or pick new one
-        if not ret:
-            self._load_random_video()
-            ret, bg_frame = self.cap.read()
-            if not ret: # Fallback if video read fails
-                return obs
+        # Safety check
+        if not self.current_frames:
+            return obs
 
-        # 2. Resize video to match Game (H, W)
+        # 1. Load the current frame from disk
+        frame_path = self.current_frames[self.frame_idx]
+        bg_frame = cv2.imread(frame_path)
+
+        # Advance index (Loop back to start if sequence ends)
+        self.frame_idx = (self.frame_idx + 1) % len(self.current_frames)
+
+        # 2. Safety check: Ensure image loaded correctly
+        if bg_frame is None:
+            return obs
+
+        # 3. Resize background to match Game (H, W)
         h, w, _ = obs.shape
         bg_frame = cv2.resize(bg_frame, (w, h))
 
-        # 3. Create Mask (Where is the game black?)
+        # 4. Create Mask (Where is the game black?)
         # Atari Breakout background is pure black (0, 0, 0)
-        # We use < 5 threshold to be safe against minor artifacts
         mask = (obs < 5).all(axis=2)
 
-        # 4. Replace background
+        # 5. Replace background
         obs[mask] = bg_frame[mask]
+        
+        # Store for rendering
         self.last_augmented_obs = obs.copy()
         
         return obs
