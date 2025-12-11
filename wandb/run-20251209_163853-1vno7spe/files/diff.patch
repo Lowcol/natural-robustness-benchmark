@@ -1,0 +1,3151 @@
+diff --git a/src/train_natural_rad.py b/src/train_natural_rad.py
+index ad5feb3..5e7f5e8 100644
+--- a/src/train_natural_rad.py
++++ b/src/train_natural_rad.py
+@@ -14,8 +14,7 @@ from torch.distributions.categorical import Categorical
+ from torch.utils.tensorboard import SummaryWriter
+ import torch.nn.functional as F
+ 
+-# NOTE: Ensure your wrapper file is named 'wrappers.py' or 'atari_wrappers.py' to match this import
+-from wrappers import (  
++from atari_wrappers import (  
+     ClipRewardEnv,
+     EpisodicLifeEnv,
+     FireResetEnv,
+@@ -43,8 +42,10 @@ class Args:
+     """the entity (team) of wandb's project"""
+     capture_video: bool = True
+     """whether to capture videos of the agent performances (check out `videos` folder)"""
+-    natural_video_folder: str = "videos-noise" # Default folder for easier running
++    natural_video_folder: str = None
+     """path to folder containing background videos for natural variant"""
++    log_aug_samples: bool = True
++    """if toggled, log a sample of raw vs augmented observations to TensorBoard"""
+ 
+     # Algorithm specific arguments
+     env_id: str = "BreakoutNoFrameskip-v4"
+@@ -115,11 +116,7 @@ def rad_random_crop(imgs, size=84):
+ 
+ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
+     def thunk():
+-        if capture_video and idx == 0:
+-            env = gym.make(env_id, render_mode="rgb_array")
+-            env = gym.wrappers.RecordVideo(env, f"videos-training-rad/{run_name}")
+-        else:
+-            env = gym.make(env_id)
++        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
+         env = gym.wrappers.RecordEpisodeStatistics(env)
+         env = NoopResetEnv(env, noop_max=30)
+         env = MaxAndSkipEnv(env, skip=4)
+@@ -131,6 +128,14 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
+         # Add natural background wrapper BEFORE resizing and grayscaling
+         if natural_video_folder is not None:
+             env = NaturalBackgroundWrapper(env, natural_video_folder)
++
++        # Ensure recorded video plays at expected speed (60fps base / 4-frame skip = 15fps)
++        if capture_video and env.metadata.get("render_fps") in (None, 0):
++            env.metadata["render_fps"] = 15
++
++        # Record after augmentation so the saved video shows the natural background
++        if capture_video and idx == 0:
++            env = gym.wrappers.RecordVideo(env, f"videos-training-rad/{run_name}")
+         
+         env = gym.wrappers.ResizeObservation(env, (84, 84))
+         env = gym.wrappers.GrayScaleObservation(env)
+@@ -230,6 +235,7 @@ if __name__ == "__main__":
+     next_obs, _ = envs.reset(seed=args.seed)
+     next_obs = torch.Tensor(next_obs).to(device)
+     next_done = torch.zeros(args.num_envs).to(device)
++    logged_aug_vis = False
+ 
+     for iteration in range(1, args.num_iterations + 1):
+         # Annealing the rate if instructed to do so.
+@@ -248,6 +254,21 @@ if __name__ == "__main__":
+                 # --- APPLY RAD (Random Crop) ---
+                 # We crop the observation BEFORE the agent sees it
+                 aug_obs = rad_random_crop(next_obs)
++                # Optionally log a sample of raw vs augmented for env 0 (once)
++                if args.log_aug_samples and not logged_aug_vis:
++                    raw_img = next_obs[0].detach().cpu()
++                    aug_img = aug_obs[0].detach().cpu()
++
++                    def to_chw(img):
++                        # If channels are last, move them to CHW for TensorBoard
++                        if img.ndim == 3 and img.shape[0] not in (1, 3, 4):
++                            img = img.permute(2, 0, 1)
++                        return img
++
++                    writer.add_image("debug/raw_obs_env0", to_chw(raw_img) / 255.0, global_step)
++                    writer.add_image("debug/aug_obs_env0", to_chw(aug_img) / 255.0, global_step)
++                    logged_aug_vis = True
++
+                 action, logprob, _, value = agent.get_action_and_value(aug_obs)
+                 # -------------------------------
+                 values[step] = value.flatten()
+diff --git a/videos-noise/abseiling/-WKCwDRp_jk.mp4 b/videos-noise/abseiling/-WKCwDRp_jk.mp4
+deleted file mode 100644
+index 97a792f..0000000
+Binary files a/videos-noise/abseiling/-WKCwDRp_jk.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/03NbvjuSoxk.mp4 b/videos-noise/abseiling/03NbvjuSoxk.mp4
+deleted file mode 100644
+index 37eb2ed..0000000
+Binary files a/videos-noise/abseiling/03NbvjuSoxk.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/1atkTs6LO6s.mp4 b/videos-noise/abseiling/1atkTs6LO6s.mp4
+deleted file mode 100644
+index 060938c..0000000
+Binary files a/videos-noise/abseiling/1atkTs6LO6s.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/51GJ2uVXjvM.mp4 b/videos-noise/abseiling/51GJ2uVXjvM.mp4
+deleted file mode 100644
+index 03b9f8f..0000000
+Binary files a/videos-noise/abseiling/51GJ2uVXjvM.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/51taNPfG89o.mp4 b/videos-noise/abseiling/51taNPfG89o.mp4
+deleted file mode 100644
+index eb5cb9f..0000000
+Binary files a/videos-noise/abseiling/51taNPfG89o.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/60hYTVgs8EQ.mp4 b/videos-noise/abseiling/60hYTVgs8EQ.mp4
+deleted file mode 100644
+index f4ade7d..0000000
+Binary files a/videos-noise/abseiling/60hYTVgs8EQ.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/611neCpTy4w.mp4 b/videos-noise/abseiling/611neCpTy4w.mp4
+deleted file mode 100644
+index bba0b47..0000000
+Binary files a/videos-noise/abseiling/611neCpTy4w.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/6fBBpbxDuTw.mp4 b/videos-noise/abseiling/6fBBpbxDuTw.mp4
+deleted file mode 100644
+index e5c3040..0000000
+Binary files a/videos-noise/abseiling/6fBBpbxDuTw.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/7dJXS-QdVFc.mp4 b/videos-noise/abseiling/7dJXS-QdVFc.mp4
+deleted file mode 100644
+index abca4ad..0000000
+Binary files a/videos-noise/abseiling/7dJXS-QdVFc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/8pAtfl2u_FI.mp4 b/videos-noise/abseiling/8pAtfl2u_FI.mp4
+deleted file mode 100644
+index 383f445..0000000
+Binary files a/videos-noise/abseiling/8pAtfl2u_FI.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/8pMa6CmyKWc.mp4 b/videos-noise/abseiling/8pMa6CmyKWc.mp4
+deleted file mode 100644
+index 7ae9fb2..0000000
+Binary files a/videos-noise/abseiling/8pMa6CmyKWc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/95Rc1DynjV0.mp4 b/videos-noise/abseiling/95Rc1DynjV0.mp4
+deleted file mode 100644
+index 8bb6a3b..0000000
+Binary files a/videos-noise/abseiling/95Rc1DynjV0.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/9EYSXPShv9k.mp4 b/videos-noise/abseiling/9EYSXPShv9k.mp4
+deleted file mode 100644
+index 24aec22..0000000
+Binary files a/videos-noise/abseiling/9EYSXPShv9k.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/ABVY2X5gybE.mp4 b/videos-noise/abseiling/ABVY2X5gybE.mp4
+deleted file mode 100644
+index ade010a..0000000
+Binary files a/videos-noise/abseiling/ABVY2X5gybE.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/FHOszybReO8.mp4 b/videos-noise/abseiling/FHOszybReO8.mp4
+deleted file mode 100644
+index 31b5d59..0000000
+Binary files a/videos-noise/abseiling/FHOszybReO8.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/GZz_mnc3-Nc.mp4 b/videos-noise/abseiling/GZz_mnc3-Nc.mp4
+deleted file mode 100644
+index 4559ff2..0000000
+Binary files a/videos-noise/abseiling/GZz_mnc3-Nc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/G_Nl_Tt26Nc.mp4 b/videos-noise/abseiling/G_Nl_Tt26Nc.mp4
+deleted file mode 100644
+index 60d3b16..0000000
+Binary files a/videos-noise/abseiling/G_Nl_Tt26Nc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/M-hBdj62g9Y.mp4 b/videos-noise/abseiling/M-hBdj62g9Y.mp4
+deleted file mode 100644
+index 133f246..0000000
+Binary files a/videos-noise/abseiling/M-hBdj62g9Y.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/Nnk8AcX4WOU.mp4 b/videos-noise/abseiling/Nnk8AcX4WOU.mp4
+deleted file mode 100644
+index a35bc8e..0000000
+Binary files a/videos-noise/abseiling/Nnk8AcX4WOU.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/Pd8qpaC18BI.mp4 b/videos-noise/abseiling/Pd8qpaC18BI.mp4
+deleted file mode 100644
+index 41c35f0..0000000
+Binary files a/videos-noise/abseiling/Pd8qpaC18BI.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/QynzC6ptRcQ.mp4 b/videos-noise/abseiling/QynzC6ptRcQ.mp4
+deleted file mode 100644
+index 5c2a214..0000000
+Binary files a/videos-noise/abseiling/QynzC6ptRcQ.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/UP6kAnZLET8.mp4 b/videos-noise/abseiling/UP6kAnZLET8.mp4
+deleted file mode 100644
+index 6f586fa..0000000
+Binary files a/videos-noise/abseiling/UP6kAnZLET8.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/VdIjpDI6b0I.mp4 b/videos-noise/abseiling/VdIjpDI6b0I.mp4
+deleted file mode 100644
+index b6836ea..0000000
+Binary files a/videos-noise/abseiling/VdIjpDI6b0I.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/WpyltT2B6pM.mp4 b/videos-noise/abseiling/WpyltT2B6pM.mp4
+deleted file mode 100644
+index 228bc55..0000000
+Binary files a/videos-noise/abseiling/WpyltT2B6pM.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/YCXkFo1nX1Q.mp4 b/videos-noise/abseiling/YCXkFo1nX1Q.mp4
+deleted file mode 100644
+index ff0979f..0000000
+Binary files a/videos-noise/abseiling/YCXkFo1nX1Q.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/Z227H4Lufjk.mp4 b/videos-noise/abseiling/Z227H4Lufjk.mp4
+deleted file mode 100644
+index 5ac6bcd..0000000
+Binary files a/videos-noise/abseiling/Z227H4Lufjk.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/ZxG1co3qXLg.mp4 b/videos-noise/abseiling/ZxG1co3qXLg.mp4
+deleted file mode 100644
+index 4115c33..0000000
+Binary files a/videos-noise/abseiling/ZxG1co3qXLg.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/Zy-Bd3-E7WA.mp4 b/videos-noise/abseiling/Zy-Bd3-E7WA.mp4
+deleted file mode 100644
+index 1b850cb..0000000
+Binary files a/videos-noise/abseiling/Zy-Bd3-E7WA.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/bYVa4Rdeowc.mp4 b/videos-noise/abseiling/bYVa4Rdeowc.mp4
+deleted file mode 100644
+index ac613e1..0000000
+Binary files a/videos-noise/abseiling/bYVa4Rdeowc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/dMBxA3ZtLqY.mp4 b/videos-noise/abseiling/dMBxA3ZtLqY.mp4
+deleted file mode 100644
+index 90c6c7e..0000000
+Binary files a/videos-noise/abseiling/dMBxA3ZtLqY.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/fv0CvUoK-R4.mp4 b/videos-noise/abseiling/fv0CvUoK-R4.mp4
+deleted file mode 100644
+index 3652b28..0000000
+Binary files a/videos-noise/abseiling/fv0CvUoK-R4.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/fxIfAQKF-5E.mp4 b/videos-noise/abseiling/fxIfAQKF-5E.mp4
+deleted file mode 100644
+index 3220131..0000000
+Binary files a/videos-noise/abseiling/fxIfAQKF-5E.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/fypKVBoTKF0.mp4 b/videos-noise/abseiling/fypKVBoTKF0.mp4
+deleted file mode 100644
+index 453259b..0000000
+Binary files a/videos-noise/abseiling/fypKVBoTKF0.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/h4fxmyfMgdU.mp4 b/videos-noise/abseiling/h4fxmyfMgdU.mp4
+deleted file mode 100644
+index 197fcb1..0000000
+Binary files a/videos-noise/abseiling/h4fxmyfMgdU.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/j7Iy9wQev8Q.mp4 b/videos-noise/abseiling/j7Iy9wQev8Q.mp4
+deleted file mode 100644
+index 3c765ef..0000000
+Binary files a/videos-noise/abseiling/j7Iy9wQev8Q.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/kGomAlkQook.mp4 b/videos-noise/abseiling/kGomAlkQook.mp4
+deleted file mode 100644
+index 19db142..0000000
+Binary files a/videos-noise/abseiling/kGomAlkQook.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/m8Pm5kmCuqI.mp4 b/videos-noise/abseiling/m8Pm5kmCuqI.mp4
+deleted file mode 100644
+index caa281c..0000000
+Binary files a/videos-noise/abseiling/m8Pm5kmCuqI.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/oMzFvZunGQg.mp4 b/videos-noise/abseiling/oMzFvZunGQg.mp4
+deleted file mode 100644
+index 8a6ebb8..0000000
+Binary files a/videos-noise/abseiling/oMzFvZunGQg.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/oNT_nF81-ZY.mp4 b/videos-noise/abseiling/oNT_nF81-ZY.mp4
+deleted file mode 100644
+index 8878a89..0000000
+Binary files a/videos-noise/abseiling/oNT_nF81-ZY.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/rozcbBKPiq0.mp4 b/videos-noise/abseiling/rozcbBKPiq0.mp4
+deleted file mode 100644
+index 89a87ce..0000000
+Binary files a/videos-noise/abseiling/rozcbBKPiq0.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/rpxNo22vxfM.mp4 b/videos-noise/abseiling/rpxNo22vxfM.mp4
+deleted file mode 100644
+index 7f375f9..0000000
+Binary files a/videos-noise/abseiling/rpxNo22vxfM.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/rscBFSNxRxE.mp4 b/videos-noise/abseiling/rscBFSNxRxE.mp4
+deleted file mode 100644
+index 96474fe..0000000
+Binary files a/videos-noise/abseiling/rscBFSNxRxE.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/uP09GoMAYjU.mp4 b/videos-noise/abseiling/uP09GoMAYjU.mp4
+deleted file mode 100644
+index d84e955..0000000
+Binary files a/videos-noise/abseiling/uP09GoMAYjU.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/u_8AD-p_A8A.mp4 b/videos-noise/abseiling/u_8AD-p_A8A.mp4
+deleted file mode 100644
+index 330e358..0000000
+Binary files a/videos-noise/abseiling/u_8AD-p_A8A.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/uaHqixb-Zbc.mp4 b/videos-noise/abseiling/uaHqixb-Zbc.mp4
+deleted file mode 100644
+index 1b2375a..0000000
+Binary files a/videos-noise/abseiling/uaHqixb-Zbc.mp4 and /dev/null differ
+diff --git a/videos-noise/abseiling/zP7onZWTnE0.mp4 b/videos-noise/abseiling/zP7onZWTnE0.mp4
+deleted file mode 100644
+index e54e8b0..0000000
+Binary files a/videos-noise/abseiling/zP7onZWTnE0.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/0ETN_KBzW_c.mp4 b/videos-noise/air drumming/0ETN_KBzW_c.mp4
+deleted file mode 100644
+index 29f1284..0000000
+Binary files a/videos-noise/air drumming/0ETN_KBzW_c.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/4Lajqf0_ILk.mp4 b/videos-noise/air drumming/4Lajqf0_ILk.mp4
+deleted file mode 100644
+index 015098d..0000000
+Binary files a/videos-noise/air drumming/4Lajqf0_ILk.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/5KUxFX1HKbI.mp4 b/videos-noise/air drumming/5KUxFX1HKbI.mp4
+deleted file mode 100644
+index 414b329..0000000
+Binary files a/videos-noise/air drumming/5KUxFX1HKbI.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/5M80ZTWfzOU.mp4 b/videos-noise/air drumming/5M80ZTWfzOU.mp4
+deleted file mode 100644
+index a1bd69b..0000000
+Binary files a/videos-noise/air drumming/5M80ZTWfzOU.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/5vsvvC3URCI.mp4 b/videos-noise/air drumming/5vsvvC3URCI.mp4
+deleted file mode 100644
+index 24ca089..0000000
+Binary files a/videos-noise/air drumming/5vsvvC3URCI.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/8RqNei3MH98.mp4 b/videos-noise/air drumming/8RqNei3MH98.mp4
+deleted file mode 100644
+index 8fc0cb2..0000000
+Binary files a/videos-noise/air drumming/8RqNei3MH98.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/CD1DwNuzStM.mp4 b/videos-noise/air drumming/CD1DwNuzStM.mp4
+deleted file mode 100644
+index a62d67f..0000000
+Binary files a/videos-noise/air drumming/CD1DwNuzStM.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/CErkhE_nKZs.mp4 b/videos-noise/air drumming/CErkhE_nKZs.mp4
+deleted file mode 100644
+index 9491f7d..0000000
+Binary files a/videos-noise/air drumming/CErkhE_nKZs.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/DNXNsDRCLtE.mp4 b/videos-noise/air drumming/DNXNsDRCLtE.mp4
+deleted file mode 100644
+index 86c991e..0000000
+Binary files a/videos-noise/air drumming/DNXNsDRCLtE.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ETZYds_uExg.mp4 b/videos-noise/air drumming/ETZYds_uExg.mp4
+deleted file mode 100644
+index 5a86eb0..0000000
+Binary files a/videos-noise/air drumming/ETZYds_uExg.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ETlP-ui-WuE.mp4 b/videos-noise/air drumming/ETlP-ui-WuE.mp4
+deleted file mode 100644
+index 8379f7d..0000000
+Binary files a/videos-noise/air drumming/ETlP-ui-WuE.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/IGHdEO1cnhI.mp4 b/videos-noise/air drumming/IGHdEO1cnhI.mp4
+deleted file mode 100644
+index f356a0d..0000000
+Binary files a/videos-noise/air drumming/IGHdEO1cnhI.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/Iy7Fqb_IE10.mp4 b/videos-noise/air drumming/Iy7Fqb_IE10.mp4
+deleted file mode 100644
+index 8f74fa2..0000000
+Binary files a/videos-noise/air drumming/Iy7Fqb_IE10.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/JcMnwOnl4kM.mp4 b/videos-noise/air drumming/JcMnwOnl4kM.mp4
+deleted file mode 100644
+index 097a906..0000000
+Binary files a/videos-noise/air drumming/JcMnwOnl4kM.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/JvdXzpMcvtA.mp4 b/videos-noise/air drumming/JvdXzpMcvtA.mp4
+deleted file mode 100644
+index bb04feb..0000000
+Binary files a/videos-noise/air drumming/JvdXzpMcvtA.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/JvqAqpzobFg.mp4 b/videos-noise/air drumming/JvqAqpzobFg.mp4
+deleted file mode 100644
+index 70f0c3a..0000000
+Binary files a/videos-noise/air drumming/JvqAqpzobFg.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/KPRvgWrmuT8.mp4 b/videos-noise/air drumming/KPRvgWrmuT8.mp4
+deleted file mode 100644
+index 34b4f78..0000000
+Binary files a/videos-noise/air drumming/KPRvgWrmuT8.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/KWZJMByXJtk.mp4 b/videos-noise/air drumming/KWZJMByXJtk.mp4
+deleted file mode 100644
+index 73c6163..0000000
+Binary files a/videos-noise/air drumming/KWZJMByXJtk.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/LhjIt9L6Dx4.mp4 b/videos-noise/air drumming/LhjIt9L6Dx4.mp4
+deleted file mode 100644
+index 0c4b517..0000000
+Binary files a/videos-noise/air drumming/LhjIt9L6Dx4.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/NU6rLgL2228.mp4 b/videos-noise/air drumming/NU6rLgL2228.mp4
+deleted file mode 100644
+index b8a8bd5..0000000
+Binary files a/videos-noise/air drumming/NU6rLgL2228.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/Ob-VYqPMlxM.mp4 b/videos-noise/air drumming/Ob-VYqPMlxM.mp4
+deleted file mode 100644
+index 8019e97..0000000
+Binary files a/videos-noise/air drumming/Ob-VYqPMlxM.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/RTwMtp9y2Bk.mp4 b/videos-noise/air drumming/RTwMtp9y2Bk.mp4
+deleted file mode 100644
+index c338561..0000000
+Binary files a/videos-noise/air drumming/RTwMtp9y2Bk.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/SEO2SQcpXlw.mp4 b/videos-noise/air drumming/SEO2SQcpXlw.mp4
+deleted file mode 100644
+index 2a77134..0000000
+Binary files a/videos-noise/air drumming/SEO2SQcpXlw.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/SjQuSpU-Jqo.mp4 b/videos-noise/air drumming/SjQuSpU-Jqo.mp4
+deleted file mode 100644
+index 07cb7d8..0000000
+Binary files a/videos-noise/air drumming/SjQuSpU-Jqo.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/TnzXRurzEq8.mp4 b/videos-noise/air drumming/TnzXRurzEq8.mp4
+deleted file mode 100644
+index 7b80125..0000000
+Binary files a/videos-noise/air drumming/TnzXRurzEq8.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/UHD-eXFtxCE.mp4 b/videos-noise/air drumming/UHD-eXFtxCE.mp4
+deleted file mode 100644
+index 8265d5e..0000000
+Binary files a/videos-noise/air drumming/UHD-eXFtxCE.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/UYUqgTaMl_o.mp4 b/videos-noise/air drumming/UYUqgTaMl_o.mp4
+deleted file mode 100644
+index 153019c..0000000
+Binary files a/videos-noise/air drumming/UYUqgTaMl_o.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/X8bwFX5tVIs.mp4 b/videos-noise/air drumming/X8bwFX5tVIs.mp4
+deleted file mode 100644
+index 0bb659c..0000000
+Binary files a/videos-noise/air drumming/X8bwFX5tVIs.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/_9SlRyQ2Aio.mp4 b/videos-noise/air drumming/_9SlRyQ2Aio.mp4
+deleted file mode 100644
+index e765ed6..0000000
+Binary files a/videos-noise/air drumming/_9SlRyQ2Aio.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/_wSslwn5Xuc.mp4 b/videos-noise/air drumming/_wSslwn5Xuc.mp4
+deleted file mode 100644
+index 1af9e65..0000000
+Binary files a/videos-noise/air drumming/_wSslwn5Xuc.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ajnYiYoPfGA.mp4 b/videos-noise/air drumming/ajnYiYoPfGA.mp4
+deleted file mode 100644
+index ebc8d1e..0000000
+Binary files a/videos-noise/air drumming/ajnYiYoPfGA.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/cjSPyzOaxIg.mp4 b/videos-noise/air drumming/cjSPyzOaxIg.mp4
+deleted file mode 100644
+index a6dccd8..0000000
+Binary files a/videos-noise/air drumming/cjSPyzOaxIg.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ebYDs8g3n2Q.mp4 b/videos-noise/air drumming/ebYDs8g3n2Q.mp4
+deleted file mode 100644
+index 592367d..0000000
+Binary files a/videos-noise/air drumming/ebYDs8g3n2Q.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ebduwpFg3Y4.mp4 b/videos-noise/air drumming/ebduwpFg3Y4.mp4
+deleted file mode 100644
+index fa1aa43..0000000
+Binary files a/videos-noise/air drumming/ebduwpFg3Y4.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/gFI4lkq3rqk.mp4 b/videos-noise/air drumming/gFI4lkq3rqk.mp4
+deleted file mode 100644
+index f6c7d26..0000000
+Binary files a/videos-noise/air drumming/gFI4lkq3rqk.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/gHoFt2ugKyQ.mp4 b/videos-noise/air drumming/gHoFt2ugKyQ.mp4
+deleted file mode 100644
+index 0239ec5..0000000
+Binary files a/videos-noise/air drumming/gHoFt2ugKyQ.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/ksiSIIdglac.mp4 b/videos-noise/air drumming/ksiSIIdglac.mp4
+deleted file mode 100644
+index 8390fde..0000000
+Binary files a/videos-noise/air drumming/ksiSIIdglac.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/mZc3dQROHas.mp4 b/videos-noise/air drumming/mZc3dQROHas.mp4
+deleted file mode 100644
+index 6b641bc..0000000
+Binary files a/videos-noise/air drumming/mZc3dQROHas.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/m_Fe3VFzGrg.mp4 b/videos-noise/air drumming/m_Fe3VFzGrg.mp4
+deleted file mode 100644
+index 19120db..0000000
+Binary files a/videos-noise/air drumming/m_Fe3VFzGrg.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/nQPz3V8noXs.mp4 b/videos-noise/air drumming/nQPz3V8noXs.mp4
+deleted file mode 100644
+index 8ad92a6..0000000
+Binary files a/videos-noise/air drumming/nQPz3V8noXs.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/rOxGtBTjINQ.mp4 b/videos-noise/air drumming/rOxGtBTjINQ.mp4
+deleted file mode 100644
+index de88b7e..0000000
+Binary files a/videos-noise/air drumming/rOxGtBTjINQ.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/tIXejmTfwRc.mp4 b/videos-noise/air drumming/tIXejmTfwRc.mp4
+deleted file mode 100644
+index 480bae5..0000000
+Binary files a/videos-noise/air drumming/tIXejmTfwRc.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/vAay-r4fBVg.mp4 b/videos-noise/air drumming/vAay-r4fBVg.mp4
+deleted file mode 100644
+index c95c8ef..0000000
+Binary files a/videos-noise/air drumming/vAay-r4fBVg.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/wRdzm2wRUA0.mp4 b/videos-noise/air drumming/wRdzm2wRUA0.mp4
+deleted file mode 100644
+index 8ca2c14..0000000
+Binary files a/videos-noise/air drumming/wRdzm2wRUA0.mp4 and /dev/null differ
+diff --git a/videos-noise/air drumming/zCskcPjUVvg.mp4 b/videos-noise/air drumming/zCskcPjUVvg.mp4
+deleted file mode 100644
+index 5253060..0000000
+Binary files a/videos-noise/air drumming/zCskcPjUVvg.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/6Am-TQ0OeFU.mp4 b/videos-noise/answering questions/6Am-TQ0OeFU.mp4
+deleted file mode 100644
+index 26b0bc9..0000000
+Binary files a/videos-noise/answering questions/6Am-TQ0OeFU.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/7scGpjeIzk8.mp4 b/videos-noise/answering questions/7scGpjeIzk8.mp4
+deleted file mode 100644
+index 5d02be0..0000000
+Binary files a/videos-noise/answering questions/7scGpjeIzk8.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/8hYoYEHAk-c.mp4 b/videos-noise/answering questions/8hYoYEHAk-c.mp4
+deleted file mode 100644
+index 410f5ca..0000000
+Binary files a/videos-noise/answering questions/8hYoYEHAk-c.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/AqVyP5BkEsA.mp4 b/videos-noise/answering questions/AqVyP5BkEsA.mp4
+deleted file mode 100644
+index 229cba3..0000000
+Binary files a/videos-noise/answering questions/AqVyP5BkEsA.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/Jt-ac6pstmM.mp4 b/videos-noise/answering questions/Jt-ac6pstmM.mp4
+deleted file mode 100644
+index 628ecc6..0000000
+Binary files a/videos-noise/answering questions/Jt-ac6pstmM.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/Jt14GR8BnKw.mp4 b/videos-noise/answering questions/Jt14GR8BnKw.mp4
+deleted file mode 100644
+index af57312..0000000
+Binary files a/videos-noise/answering questions/Jt14GR8BnKw.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/_EfhVLCy3Y4.mp4 b/videos-noise/answering questions/_EfhVLCy3Y4.mp4
+deleted file mode 100644
+index 2e494f5..0000000
+Binary files a/videos-noise/answering questions/_EfhVLCy3Y4.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/_VaBR4wdZI0.mp4 b/videos-noise/answering questions/_VaBR4wdZI0.mp4
+deleted file mode 100644
+index b291f61..0000000
+Binary files a/videos-noise/answering questions/_VaBR4wdZI0.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/j6ogVLOLQug.mp4 b/videos-noise/answering questions/j6ogVLOLQug.mp4
+deleted file mode 100644
+index 99a85e1..0000000
+Binary files a/videos-noise/answering questions/j6ogVLOLQug.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/joN6_IGDa0U.mp4 b/videos-noise/answering questions/joN6_IGDa0U.mp4
+deleted file mode 100644
+index eda80f4..0000000
+Binary files a/videos-noise/answering questions/joN6_IGDa0U.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/ktYRoTTTGPA.mp4 b/videos-noise/answering questions/ktYRoTTTGPA.mp4
+deleted file mode 100644
+index cc09746..0000000
+Binary files a/videos-noise/answering questions/ktYRoTTTGPA.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/ny_4DKE5_AI.mp4 b/videos-noise/answering questions/ny_4DKE5_AI.mp4
+deleted file mode 100644
+index 9f2447b..0000000
+Binary files a/videos-noise/answering questions/ny_4DKE5_AI.mp4 and /dev/null differ
+diff --git a/videos-noise/answering questions/z6HJ-dPQ_6M.mp4 b/videos-noise/answering questions/z6HJ-dPQ_6M.mp4
+deleted file mode 100644
+index 1833feb..0000000
+Binary files a/videos-noise/answering questions/z6HJ-dPQ_6M.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/GBG55ZwGS-Y.mp4 b/videos-noise/applauding/GBG55ZwGS-Y.mp4
+deleted file mode 100644
+index 00d51c1..0000000
+Binary files a/videos-noise/applauding/GBG55ZwGS-Y.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/GxZIwTZbCkY.mp4 b/videos-noise/applauding/GxZIwTZbCkY.mp4
+deleted file mode 100644
+index 540e00b..0000000
+Binary files a/videos-noise/applauding/GxZIwTZbCkY.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/I8j_EP0Hhbk.mp4 b/videos-noise/applauding/I8j_EP0Hhbk.mp4
+deleted file mode 100644
+index 76c4b5c..0000000
+Binary files a/videos-noise/applauding/I8j_EP0Hhbk.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/RcIwIcFRF6E.mp4 b/videos-noise/applauding/RcIwIcFRF6E.mp4
+deleted file mode 100644
+index dc4eddc..0000000
+Binary files a/videos-noise/applauding/RcIwIcFRF6E.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/brBw6cFwock.mp4 b/videos-noise/applauding/brBw6cFwock.mp4
+deleted file mode 100644
+index b8c48e4..0000000
+Binary files a/videos-noise/applauding/brBw6cFwock.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/fdmxXGW7TRk.mp4 b/videos-noise/applauding/fdmxXGW7TRk.mp4
+deleted file mode 100644
+index 68266be..0000000
+Binary files a/videos-noise/applauding/fdmxXGW7TRk.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/qKL-dNwZVAI.mp4 b/videos-noise/applauding/qKL-dNwZVAI.mp4
+deleted file mode 100644
+index 58f51eb..0000000
+Binary files a/videos-noise/applauding/qKL-dNwZVAI.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/tmu_xrMf5MA.mp4 b/videos-noise/applauding/tmu_xrMf5MA.mp4
+deleted file mode 100644
+index 65fdc02..0000000
+Binary files a/videos-noise/applauding/tmu_xrMf5MA.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/wF5uzvTNwSE.mp4 b/videos-noise/applauding/wF5uzvTNwSE.mp4
+deleted file mode 100644
+index 6844bc8..0000000
+Binary files a/videos-noise/applauding/wF5uzvTNwSE.mp4 and /dev/null differ
+diff --git a/videos-noise/applauding/xnaNqiw4wQo.mp4 b/videos-noise/applauding/xnaNqiw4wQo.mp4
+deleted file mode 100644
+index 40ae94f..0000000
+Binary files a/videos-noise/applauding/xnaNqiw4wQo.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/5lrxGVViPFE.mp4 b/videos-noise/applying cream/5lrxGVViPFE.mp4
+deleted file mode 100644
+index c4a4409..0000000
+Binary files a/videos-noise/applying cream/5lrxGVViPFE.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/AGoBiL-sAxQ.mp4 b/videos-noise/applying cream/AGoBiL-sAxQ.mp4
+deleted file mode 100644
+index dd48eab..0000000
+Binary files a/videos-noise/applying cream/AGoBiL-sAxQ.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/MIeir8eca0g.mp4 b/videos-noise/applying cream/MIeir8eca0g.mp4
+deleted file mode 100644
+index 0f290bd..0000000
+Binary files a/videos-noise/applying cream/MIeir8eca0g.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/NtdRNsfmdYY.mp4 b/videos-noise/applying cream/NtdRNsfmdYY.mp4
+deleted file mode 100644
+index 3160b44..0000000
+Binary files a/videos-noise/applying cream/NtdRNsfmdYY.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/Oy_xKJ3jU44.mp4 b/videos-noise/applying cream/Oy_xKJ3jU44.mp4
+deleted file mode 100644
+index 3c06610..0000000
+Binary files a/videos-noise/applying cream/Oy_xKJ3jU44.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.part b/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.part
+deleted file mode 100644
+index 591b0dc..0000000
+Binary files a/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.part and /dev/null differ
+diff --git a/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.ytdl b/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.ytdl
+deleted file mode 100644
+index 560e3e8..0000000
+--- a/videos-noise/applying cream/Oy_xKJ3jU44_raw.f137.mp4.ytdl	
++++ /dev/null
+@@ -1 +0,0 @@
+-{"downloader": {"current_fragment": {"index": 3}}}
+\ No newline at end of file
+diff --git a/videos-noise/applying cream/PUAVxxgaPQU.mp4 b/videos-noise/applying cream/PUAVxxgaPQU.mp4
+deleted file mode 100644
+index 1ffa23c..0000000
+Binary files a/videos-noise/applying cream/PUAVxxgaPQU.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/Ru9IisEac3o.mp4 b/videos-noise/applying cream/Ru9IisEac3o.mp4
+deleted file mode 100644
+index 10fcdec..0000000
+Binary files a/videos-noise/applying cream/Ru9IisEac3o.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/SMcCAxnvS34.mp4 b/videos-noise/applying cream/SMcCAxnvS34.mp4
+deleted file mode 100644
+index 3275eb9..0000000
+Binary files a/videos-noise/applying cream/SMcCAxnvS34.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/U3V4yeEqtbA.mp4 b/videos-noise/applying cream/U3V4yeEqtbA.mp4
+deleted file mode 100644
+index 450bde3..0000000
+Binary files a/videos-noise/applying cream/U3V4yeEqtbA.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/WKTvvkTnCME.mp4 b/videos-noise/applying cream/WKTvvkTnCME.mp4
+deleted file mode 100644
+index c6a8f48..0000000
+Binary files a/videos-noise/applying cream/WKTvvkTnCME.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/lhrIyHSvaMA.mp4 b/videos-noise/applying cream/lhrIyHSvaMA.mp4
+deleted file mode 100644
+index b73e7a5..0000000
+Binary files a/videos-noise/applying cream/lhrIyHSvaMA.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/mIi7ohDfOEE.mp4 b/videos-noise/applying cream/mIi7ohDfOEE.mp4
+deleted file mode 100644
+index ccbc8b0..0000000
+Binary files a/videos-noise/applying cream/mIi7ohDfOEE.mp4 and /dev/null differ
+diff --git a/videos-noise/applying cream/txsIDkKsen4.mp4 b/videos-noise/applying cream/txsIDkKsen4.mp4
+deleted file mode 100644
+index 8e6f01e..0000000
+Binary files a/videos-noise/applying cream/txsIDkKsen4.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/01kR4-7DbN8.mp4 b/videos-noise/archery/01kR4-7DbN8.mp4
+deleted file mode 100644
+index b7c0aa3..0000000
+Binary files a/videos-noise/archery/01kR4-7DbN8.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/03K5DawMTgg.mp4 b/videos-noise/archery/03K5DawMTgg.mp4
+deleted file mode 100644
+index 858c234..0000000
+Binary files a/videos-noise/archery/03K5DawMTgg.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/08b9nh7a3i8.mp4 b/videos-noise/archery/08b9nh7a3i8.mp4
+deleted file mode 100644
+index cc81ed3..0000000
+Binary files a/videos-noise/archery/08b9nh7a3i8.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/1ccBq_oh5Rs.mp4 b/videos-noise/archery/1ccBq_oh5Rs.mp4
+deleted file mode 100644
+index b4607a4..0000000
+Binary files a/videos-noise/archery/1ccBq_oh5Rs.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/1iEmMg8X1ho.mp4 b/videos-noise/archery/1iEmMg8X1ho.mp4
+deleted file mode 100644
+index fe84b5f..0000000
+Binary files a/videos-noise/archery/1iEmMg8X1ho.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/6D3RYOeOO48.mp4 b/videos-noise/archery/6D3RYOeOO48.mp4
+deleted file mode 100644
+index cf97014..0000000
+Binary files a/videos-noise/archery/6D3RYOeOO48.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/6JC5vWG0nQg.mp4 b/videos-noise/archery/6JC5vWG0nQg.mp4
+deleted file mode 100644
+index f9875bb..0000000
+Binary files a/videos-noise/archery/6JC5vWG0nQg.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/79R1MPN70V0.mp4 b/videos-noise/archery/79R1MPN70V0.mp4
+deleted file mode 100644
+index 505fc66..0000000
+Binary files a/videos-noise/archery/79R1MPN70V0.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/7AhEDr0QwBY.mp4 b/videos-noise/archery/7AhEDr0QwBY.mp4
+deleted file mode 100644
+index 36280eb..0000000
+Binary files a/videos-noise/archery/7AhEDr0QwBY.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/98_7p-PLk-8.mp4 b/videos-noise/archery/98_7p-PLk-8.mp4
+deleted file mode 100644
+index a8acb14..0000000
+Binary files a/videos-noise/archery/98_7p-PLk-8.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/BeSwkzhLwSc.mp4 b/videos-noise/archery/BeSwkzhLwSc.mp4
+deleted file mode 100644
+index c12120f..0000000
+Binary files a/videos-noise/archery/BeSwkzhLwSc.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/Bjl7mdLC7RM.mp4 b/videos-noise/archery/Bjl7mdLC7RM.mp4
+deleted file mode 100644
+index e74d3c5..0000000
+Binary files a/videos-noise/archery/Bjl7mdLC7RM.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/BlTQ7p_mX5Y.mp4 b/videos-noise/archery/BlTQ7p_mX5Y.mp4
+deleted file mode 100644
+index 335e18a..0000000
+Binary files a/videos-noise/archery/BlTQ7p_mX5Y.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/CukaHTiUEoU.mp4 b/videos-noise/archery/CukaHTiUEoU.mp4
+deleted file mode 100644
+index e164507..0000000
+Binary files a/videos-noise/archery/CukaHTiUEoU.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/CvADaXTKu7k.mp4 b/videos-noise/archery/CvADaXTKu7k.mp4
+deleted file mode 100644
+index 59c1182..0000000
+Binary files a/videos-noise/archery/CvADaXTKu7k.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/J6YU92u-Dxs.mp4 b/videos-noise/archery/J6YU92u-Dxs.mp4
+deleted file mode 100644
+index 37a3f8f..0000000
+Binary files a/videos-noise/archery/J6YU92u-Dxs.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/L1O7YhSOnhQ.mp4 b/videos-noise/archery/L1O7YhSOnhQ.mp4
+deleted file mode 100644
+index a531b30..0000000
+Binary files a/videos-noise/archery/L1O7YhSOnhQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/M6Fv2pTrOz8.mp4 b/videos-noise/archery/M6Fv2pTrOz8.mp4
+deleted file mode 100644
+index 594360d..0000000
+Binary files a/videos-noise/archery/M6Fv2pTrOz8.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/QIZMlGZzqPE.mp4 b/videos-noise/archery/QIZMlGZzqPE.mp4
+deleted file mode 100644
+index d25074c..0000000
+Binary files a/videos-noise/archery/QIZMlGZzqPE.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/T2iFbG3Vka0.mp4 b/videos-noise/archery/T2iFbG3Vka0.mp4
+deleted file mode 100644
+index 5038468..0000000
+Binary files a/videos-noise/archery/T2iFbG3Vka0.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/TCrvq_j4ZlE.mp4 b/videos-noise/archery/TCrvq_j4ZlE.mp4
+deleted file mode 100644
+index b77fc90..0000000
+Binary files a/videos-noise/archery/TCrvq_j4ZlE.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/UbOCwe-XgIE.mp4 b/videos-noise/archery/UbOCwe-XgIE.mp4
+deleted file mode 100644
+index a29a3db..0000000
+Binary files a/videos-noise/archery/UbOCwe-XgIE.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/WNmNWRt8wQ0.mp4 b/videos-noise/archery/WNmNWRt8wQ0.mp4
+deleted file mode 100644
+index 37ebd93..0000000
+Binary files a/videos-noise/archery/WNmNWRt8wQ0.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/YL12nq8OMps.mp4 b/videos-noise/archery/YL12nq8OMps.mp4
+deleted file mode 100644
+index 2c72902..0000000
+Binary files a/videos-noise/archery/YL12nq8OMps.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/YL2BGBdOIxE.mp4 b/videos-noise/archery/YL2BGBdOIxE.mp4
+deleted file mode 100644
+index aed8e41..0000000
+Binary files a/videos-noise/archery/YL2BGBdOIxE.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/YNX_RgFNqH0.mp4 b/videos-noise/archery/YNX_RgFNqH0.mp4
+deleted file mode 100644
+index bc428fb..0000000
+Binary files a/videos-noise/archery/YNX_RgFNqH0.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/Z2M8L7SuJUs.mp4 b/videos-noise/archery/Z2M8L7SuJUs.mp4
+deleted file mode 100644
+index fb95b5b..0000000
+Binary files a/videos-noise/archery/Z2M8L7SuJUs.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/_UZzwGw2Wf4.mp4 b/videos-noise/archery/_UZzwGw2Wf4.mp4
+deleted file mode 100644
+index 552585e..0000000
+Binary files a/videos-noise/archery/_UZzwGw2Wf4.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/_ceSzRc_kEQ.mp4 b/videos-noise/archery/_ceSzRc_kEQ.mp4
+deleted file mode 100644
+index 4789321..0000000
+Binary files a/videos-noise/archery/_ceSzRc_kEQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/_jmZMoD03o0.mp4 b/videos-noise/archery/_jmZMoD03o0.mp4
+deleted file mode 100644
+index 2b1998b..0000000
+Binary files a/videos-noise/archery/_jmZMoD03o0.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/bfYXfdKIcTs.mp4 b/videos-noise/archery/bfYXfdKIcTs.mp4
+deleted file mode 100644
+index 6435c09..0000000
+Binary files a/videos-noise/archery/bfYXfdKIcTs.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/bxXUTIz-UiQ.mp4 b/videos-noise/archery/bxXUTIz-UiQ.mp4
+deleted file mode 100644
+index 49c9aa8..0000000
+Binary files a/videos-noise/archery/bxXUTIz-UiQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/hK5f90aF9BA.mp4 b/videos-noise/archery/hK5f90aF9BA.mp4
+deleted file mode 100644
+index d741792..0000000
+Binary files a/videos-noise/archery/hK5f90aF9BA.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/l0mFD_9mupo.mp4 b/videos-noise/archery/l0mFD_9mupo.mp4
+deleted file mode 100644
+index 9f3d30a..0000000
+Binary files a/videos-noise/archery/l0mFD_9mupo.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/l4z5Au0JzaQ.mp4 b/videos-noise/archery/l4z5Au0JzaQ.mp4
+deleted file mode 100644
+index 6476a47..0000000
+Binary files a/videos-noise/archery/l4z5Au0JzaQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/lw9OfrqPupw.mp4 b/videos-noise/archery/lw9OfrqPupw.mp4
+deleted file mode 100644
+index f23b9c6..0000000
+Binary files a/videos-noise/archery/lw9OfrqPupw.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/mQVDRIPcqAQ.mp4 b/videos-noise/archery/mQVDRIPcqAQ.mp4
+deleted file mode 100644
+index a12a3e5..0000000
+Binary files a/videos-noise/archery/mQVDRIPcqAQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/q96D3fQewRc.mp4 b/videos-noise/archery/q96D3fQewRc.mp4
+deleted file mode 100644
+index 2646f00..0000000
+Binary files a/videos-noise/archery/q96D3fQewRc.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/qB6k8thuOPE.mp4 b/videos-noise/archery/qB6k8thuOPE.mp4
+deleted file mode 100644
+index ca3515d..0000000
+Binary files a/videos-noise/archery/qB6k8thuOPE.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/wVQqcz4JfvY.mp4 b/videos-noise/archery/wVQqcz4JfvY.mp4
+deleted file mode 100644
+index 9c4222f..0000000
+Binary files a/videos-noise/archery/wVQqcz4JfvY.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/w_iV1ahB0gI.mp4 b/videos-noise/archery/w_iV1ahB0gI.mp4
+deleted file mode 100644
+index 6b795cc..0000000
+Binary files a/videos-noise/archery/w_iV1ahB0gI.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/x0iY6hxL6Sw.mp4 b/videos-noise/archery/x0iY6hxL6Sw.mp4
+deleted file mode 100644
+index 6c8a74e..0000000
+Binary files a/videos-noise/archery/x0iY6hxL6Sw.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/yQLoTnk-lsQ.mp4 b/videos-noise/archery/yQLoTnk-lsQ.mp4
+deleted file mode 100644
+index 5fc15a1..0000000
+Binary files a/videos-noise/archery/yQLoTnk-lsQ.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/yZysRocnbKY.mp4 b/videos-noise/archery/yZysRocnbKY.mp4
+deleted file mode 100644
+index a203cbe..0000000
+Binary files a/videos-noise/archery/yZysRocnbKY.mp4 and /dev/null differ
+diff --git a/videos-noise/archery/yqTnKH3LGh0.mp4 b/videos-noise/archery/yqTnKH3LGh0.mp4
+deleted file mode 100644
+index de34eeb..0000000
+Binary files a/videos-noise/archery/yqTnKH3LGh0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/6rZuAxZ2BXk.mp4 b/videos-noise/arm wrestling/6rZuAxZ2BXk.mp4
+deleted file mode 100644
+index ec8489d..0000000
+Binary files a/videos-noise/arm wrestling/6rZuAxZ2BXk.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/6rl6j9hJm6M.mp4 b/videos-noise/arm wrestling/6rl6j9hJm6M.mp4
+deleted file mode 100644
+index 81a687b..0000000
+Binary files a/videos-noise/arm wrestling/6rl6j9hJm6M.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/74kf5luCaFA.mp4 b/videos-noise/arm wrestling/74kf5luCaFA.mp4
+deleted file mode 100644
+index 52b267f..0000000
+Binary files a/videos-noise/arm wrestling/74kf5luCaFA.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/8EQS03dXIh0.mp4 b/videos-noise/arm wrestling/8EQS03dXIh0.mp4
+deleted file mode 100644
+index d2e2169..0000000
+Binary files a/videos-noise/arm wrestling/8EQS03dXIh0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/9GEDlJ5s8vQ.mp4 b/videos-noise/arm wrestling/9GEDlJ5s8vQ.mp4
+deleted file mode 100644
+index d80ce03..0000000
+Binary files a/videos-noise/arm wrestling/9GEDlJ5s8vQ.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/9GLQBZI0ujs.mp4 b/videos-noise/arm wrestling/9GLQBZI0ujs.mp4
+deleted file mode 100644
+index 969d39c..0000000
+Binary files a/videos-noise/arm wrestling/9GLQBZI0ujs.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/BwXTaoZRFC0.mp4 b/videos-noise/arm wrestling/BwXTaoZRFC0.mp4
+deleted file mode 100644
+index 0822acd..0000000
+Binary files a/videos-noise/arm wrestling/BwXTaoZRFC0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/BwvVgR_Zgxw.mp4 b/videos-noise/arm wrestling/BwvVgR_Zgxw.mp4
+deleted file mode 100644
+index e97f5d9..0000000
+Binary files a/videos-noise/arm wrestling/BwvVgR_Zgxw.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/BxoZhLqVgp0.mp4 b/videos-noise/arm wrestling/BxoZhLqVgp0.mp4
+deleted file mode 100644
+index f68b2bf..0000000
+Binary files a/videos-noise/arm wrestling/BxoZhLqVgp0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/BxyXyGm-dU0.mp4 b/videos-noise/arm wrestling/BxyXyGm-dU0.mp4
+deleted file mode 100644
+index aa6f6d9..0000000
+Binary files a/videos-noise/arm wrestling/BxyXyGm-dU0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/C0rS8-OSzHc.mp4 b/videos-noise/arm wrestling/C0rS8-OSzHc.mp4
+deleted file mode 100644
+index 1774731..0000000
+Binary files a/videos-noise/arm wrestling/C0rS8-OSzHc.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/H4nYxksK6Vc.mp4 b/videos-noise/arm wrestling/H4nYxksK6Vc.mp4
+deleted file mode 100644
+index b7be472..0000000
+Binary files a/videos-noise/arm wrestling/H4nYxksK6Vc.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/H5JyI7LaYpw.mp4 b/videos-noise/arm wrestling/H5JyI7LaYpw.mp4
+deleted file mode 100644
+index e4de87b..0000000
+Binary files a/videos-noise/arm wrestling/H5JyI7LaYpw.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/HTZPea9B3_Y.mp4 b/videos-noise/arm wrestling/HTZPea9B3_Y.mp4
+deleted file mode 100644
+index 885910e..0000000
+Binary files a/videos-noise/arm wrestling/HTZPea9B3_Y.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/HTZYyhUjPq8.mp4 b/videos-noise/arm wrestling/HTZYyhUjPq8.mp4
+deleted file mode 100644
+index e367807..0000000
+Binary files a/videos-noise/arm wrestling/HTZYyhUjPq8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/HTk3WPVrvpQ.mp4 b/videos-noise/arm wrestling/HTk3WPVrvpQ.mp4
+deleted file mode 100644
+index b3169b9..0000000
+Binary files a/videos-noise/arm wrestling/HTk3WPVrvpQ.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/JDxDauNf62M.mp4 b/videos-noise/arm wrestling/JDxDauNf62M.mp4
+deleted file mode 100644
+index 000373b..0000000
+Binary files a/videos-noise/arm wrestling/JDxDauNf62M.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/JEUgHetOiq4.mp4 b/videos-noise/arm wrestling/JEUgHetOiq4.mp4
+deleted file mode 100644
+index b8b450c..0000000
+Binary files a/videos-noise/arm wrestling/JEUgHetOiq4.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/MI4vpnzM50c.mp4 b/videos-noise/arm wrestling/MI4vpnzM50c.mp4
+deleted file mode 100644
+index 427c2af..0000000
+Binary files a/videos-noise/arm wrestling/MI4vpnzM50c.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/MIoMro8YqBU.mp4 b/videos-noise/arm wrestling/MIoMro8YqBU.mp4
+deleted file mode 100644
+index ecf404f..0000000
+Binary files a/videos-noise/arm wrestling/MIoMro8YqBU.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/MIqaVKHZxsw.mp4 b/videos-noise/arm wrestling/MIqaVKHZxsw.mp4
+deleted file mode 100644
+index 72edd41..0000000
+Binary files a/videos-noise/arm wrestling/MIqaVKHZxsw.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/N3-q5EaTgYU.mp4 b/videos-noise/arm wrestling/N3-q5EaTgYU.mp4
+deleted file mode 100644
+index 8301c83..0000000
+Binary files a/videos-noise/arm wrestling/N3-q5EaTgYU.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/PG2N21d3_GE.mp4 b/videos-noise/arm wrestling/PG2N21d3_GE.mp4
+deleted file mode 100644
+index 73b23a9..0000000
+Binary files a/videos-noise/arm wrestling/PG2N21d3_GE.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/PG6zKsuEIIA.mp4 b/videos-noise/arm wrestling/PG6zKsuEIIA.mp4
+deleted file mode 100644
+index e2b6ea8..0000000
+Binary files a/videos-noise/arm wrestling/PG6zKsuEIIA.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/PHHxF9znKOw.mp4 b/videos-noise/arm wrestling/PHHxF9znKOw.mp4
+deleted file mode 100644
+index 393c8d9..0000000
+Binary files a/videos-noise/arm wrestling/PHHxF9znKOw.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/PHhPU-31AR8.mp4 b/videos-noise/arm wrestling/PHhPU-31AR8.mp4
+deleted file mode 100644
+index 810c9e4..0000000
+Binary files a/videos-noise/arm wrestling/PHhPU-31AR8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/QThx5znFlUo.mp4 b/videos-noise/arm wrestling/QThx5znFlUo.mp4
+deleted file mode 100644
+index d6393a4..0000000
+Binary files a/videos-noise/arm wrestling/QThx5znFlUo.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/U66ZtV7Wei8.mp4 b/videos-noise/arm wrestling/U66ZtV7Wei8.mp4
+deleted file mode 100644
+index 3ea040b..0000000
+Binary files a/videos-noise/arm wrestling/U66ZtV7Wei8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/U67C-ys5FKU.mp4 b/videos-noise/arm wrestling/U67C-ys5FKU.mp4
+deleted file mode 100644
+index f624f3b..0000000
+Binary files a/videos-noise/arm wrestling/U67C-ys5FKU.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/U79PzQIyNMQ.mp4 b/videos-noise/arm wrestling/U79PzQIyNMQ.mp4
+deleted file mode 100644
+index 02dca62..0000000
+Binary files a/videos-noise/arm wrestling/U79PzQIyNMQ.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/VOJxu3gsGgg.mp4 b/videos-noise/arm wrestling/VOJxu3gsGgg.mp4
+deleted file mode 100644
+index 5716c02..0000000
+Binary files a/videos-noise/arm wrestling/VOJxu3gsGgg.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/Ya4LhLViNO0.mp4 b/videos-noise/arm wrestling/Ya4LhLViNO0.mp4
+deleted file mode 100644
+index 36c6e75..0000000
+Binary files a/videos-noise/arm wrestling/Ya4LhLViNO0.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/YsC-KI-H4bw.mp4 b/videos-noise/arm wrestling/YsC-KI-H4bw.mp4
+deleted file mode 100644
+index c4a4bd6..0000000
+Binary files a/videos-noise/arm wrestling/YsC-KI-H4bw.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/aA52wn7N_f8.mp4 b/videos-noise/arm wrestling/aA52wn7N_f8.mp4
+deleted file mode 100644
+index 527804d..0000000
+Binary files a/videos-noise/arm wrestling/aA52wn7N_f8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/axQXoqXdxyo.mp4 b/videos-noise/arm wrestling/axQXoqXdxyo.mp4
+deleted file mode 100644
+index 3ce925b..0000000
+Binary files a/videos-noise/arm wrestling/axQXoqXdxyo.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/hdqLeojMJuY.mp4 b/videos-noise/arm wrestling/hdqLeojMJuY.mp4
+deleted file mode 100644
+index a5260fd..0000000
+Binary files a/videos-noise/arm wrestling/hdqLeojMJuY.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/i9-V5vD2wQ8.mp4 b/videos-noise/arm wrestling/i9-V5vD2wQ8.mp4
+deleted file mode 100644
+index 0b0f476..0000000
+Binary files a/videos-noise/arm wrestling/i9-V5vD2wQ8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/i9V8FhJWUrg.mp4 b/videos-noise/arm wrestling/i9V8FhJWUrg.mp4
+deleted file mode 100644
+index 82514e4..0000000
+Binary files a/videos-noise/arm wrestling/i9V8FhJWUrg.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/m-TFbEkWFfQ.mp4 b/videos-noise/arm wrestling/m-TFbEkWFfQ.mp4
+deleted file mode 100644
+index 7bce909..0000000
+Binary files a/videos-noise/arm wrestling/m-TFbEkWFfQ.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/q9maulxK5g8.mp4 b/videos-noise/arm wrestling/q9maulxK5g8.mp4
+deleted file mode 100644
+index b7df892..0000000
+Binary files a/videos-noise/arm wrestling/q9maulxK5g8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/x1oEXze9mn8.mp4 b/videos-noise/arm wrestling/x1oEXze9mn8.mp4
+deleted file mode 100644
+index 59204f8..0000000
+Binary files a/videos-noise/arm wrestling/x1oEXze9mn8.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/x8MZpti49ZE.mp4 b/videos-noise/arm wrestling/x8MZpti49ZE.mp4
+deleted file mode 100644
+index 3ed9967..0000000
+Binary files a/videos-noise/arm wrestling/x8MZpti49ZE.mp4 and /dev/null differ
+diff --git a/videos-noise/arm wrestling/y2ZtHPeP4Vs.mp4 b/videos-noise/arm wrestling/y2ZtHPeP4Vs.mp4
+deleted file mode 100644
+index 0e58b58..0000000
+Binary files a/videos-noise/arm wrestling/y2ZtHPeP4Vs.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/1X9B_wELs3A.mp4 b/videos-noise/arranging flowers/1X9B_wELs3A.mp4
+deleted file mode 100644
+index bd21ef6..0000000
+Binary files a/videos-noise/arranging flowers/1X9B_wELs3A.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/3sAMBPrSw-A.mp4 b/videos-noise/arranging flowers/3sAMBPrSw-A.mp4
+deleted file mode 100644
+index 4a34502..0000000
+Binary files a/videos-noise/arranging flowers/3sAMBPrSw-A.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/6URdVDBIuMY.mp4 b/videos-noise/arranging flowers/6URdVDBIuMY.mp4
+deleted file mode 100644
+index f0991a8..0000000
+Binary files a/videos-noise/arranging flowers/6URdVDBIuMY.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/8Grm5THC-Lw.mp4 b/videos-noise/arranging flowers/8Grm5THC-Lw.mp4
+deleted file mode 100644
+index 90156f9..0000000
+Binary files a/videos-noise/arranging flowers/8Grm5THC-Lw.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/C04ps6RvjyI.mp4 b/videos-noise/arranging flowers/C04ps6RvjyI.mp4
+deleted file mode 100644
+index 53cbc81..0000000
+Binary files a/videos-noise/arranging flowers/C04ps6RvjyI.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/O_4biPGmqFY.mp4 b/videos-noise/arranging flowers/O_4biPGmqFY.mp4
+deleted file mode 100644
+index d68f2bd..0000000
+Binary files a/videos-noise/arranging flowers/O_4biPGmqFY.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/QzsA_1rZQ88.mp4 b/videos-noise/arranging flowers/QzsA_1rZQ88.mp4
+deleted file mode 100644
+index 0756bfc..0000000
+Binary files a/videos-noise/arranging flowers/QzsA_1rZQ88.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/S047Lklr8Ig.mp4 b/videos-noise/arranging flowers/S047Lklr8Ig.mp4
+deleted file mode 100644
+index 988ea5c..0000000
+Binary files a/videos-noise/arranging flowers/S047Lklr8Ig.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/XJ6TUhgtm8U.mp4 b/videos-noise/arranging flowers/XJ6TUhgtm8U.mp4
+deleted file mode 100644
+index 914074e..0000000
+Binary files a/videos-noise/arranging flowers/XJ6TUhgtm8U.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/XJC6sSAtE1I.mp4 b/videos-noise/arranging flowers/XJC6sSAtE1I.mp4
+deleted file mode 100644
+index dca1b7e..0000000
+Binary files a/videos-noise/arranging flowers/XJC6sSAtE1I.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/b2GqcYTiHdI.mp4 b/videos-noise/arranging flowers/b2GqcYTiHdI.mp4
+deleted file mode 100644
+index 70205b9..0000000
+Binary files a/videos-noise/arranging flowers/b2GqcYTiHdI.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/cqdavD-YlVI.mp4 b/videos-noise/arranging flowers/cqdavD-YlVI.mp4
+deleted file mode 100644
+index 75db304..0000000
+Binary files a/videos-noise/arranging flowers/cqdavD-YlVI.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/eOztFpuJbN0.mp4 b/videos-noise/arranging flowers/eOztFpuJbN0.mp4
+deleted file mode 100644
+index 79d5483..0000000
+Binary files a/videos-noise/arranging flowers/eOztFpuJbN0.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/kr_sikOpip4.mp4 b/videos-noise/arranging flowers/kr_sikOpip4.mp4
+deleted file mode 100644
+index 7e2b9ad..0000000
+Binary files a/videos-noise/arranging flowers/kr_sikOpip4.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/n2L0lJXQ-KY.mp4 b/videos-noise/arranging flowers/n2L0lJXQ-KY.mp4
+deleted file mode 100644
+index 78efc8c..0000000
+Binary files a/videos-noise/arranging flowers/n2L0lJXQ-KY.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/qYXo4tWHepM.mp4 b/videos-noise/arranging flowers/qYXo4tWHepM.mp4
+deleted file mode 100644
+index bd29009..0000000
+Binary files a/videos-noise/arranging flowers/qYXo4tWHepM.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/vSV67EvZEBs.mp4 b/videos-noise/arranging flowers/vSV67EvZEBs.mp4
+deleted file mode 100644
+index ca53a4c..0000000
+Binary files a/videos-noise/arranging flowers/vSV67EvZEBs.mp4 and /dev/null differ
+diff --git a/videos-noise/arranging flowers/wcb5vJAwz6o.mp4 b/videos-noise/arranging flowers/wcb5vJAwz6o.mp4
+deleted file mode 100644
+index 262ae28..0000000
+Binary files a/videos-noise/arranging flowers/wcb5vJAwz6o.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/2QJp83GI2_g.mp4 b/videos-noise/assembling computer/2QJp83GI2_g.mp4
+deleted file mode 100644
+index f1cf694..0000000
+Binary files a/videos-noise/assembling computer/2QJp83GI2_g.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/5diChJFerXo.mp4 b/videos-noise/assembling computer/5diChJFerXo.mp4
+deleted file mode 100644
+index 8737465..0000000
+Binary files a/videos-noise/assembling computer/5diChJFerXo.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/5up9gVSpFJ8.mp4 b/videos-noise/assembling computer/5up9gVSpFJ8.mp4
+deleted file mode 100644
+index 34b2499..0000000
+Binary files a/videos-noise/assembling computer/5up9gVSpFJ8.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/Hj1zdVnvozk.mp4 b/videos-noise/assembling computer/Hj1zdVnvozk.mp4
+deleted file mode 100644
+index 59a90c5..0000000
+Binary files a/videos-noise/assembling computer/Hj1zdVnvozk.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/KWKCZaIxrX0.mp4 b/videos-noise/assembling computer/KWKCZaIxrX0.mp4
+deleted file mode 100644
+index bca48ba..0000000
+Binary files a/videos-noise/assembling computer/KWKCZaIxrX0.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/M-KU12zkxvc.mp4 b/videos-noise/assembling computer/M-KU12zkxvc.mp4
+deleted file mode 100644
+index 036211e..0000000
+Binary files a/videos-noise/assembling computer/M-KU12zkxvc.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/Mgdl2KyaKfw.mp4 b/videos-noise/assembling computer/Mgdl2KyaKfw.mp4
+deleted file mode 100644
+index 3ced960..0000000
+Binary files a/videos-noise/assembling computer/Mgdl2KyaKfw.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/PCgs7tUMpZs.mp4 b/videos-noise/assembling computer/PCgs7tUMpZs.mp4
+deleted file mode 100644
+index 1790ef8..0000000
+Binary files a/videos-noise/assembling computer/PCgs7tUMpZs.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/RbKUNIkKFVY.mp4 b/videos-noise/assembling computer/RbKUNIkKFVY.mp4
+deleted file mode 100644
+index e78aae8..0000000
+Binary files a/videos-noise/assembling computer/RbKUNIkKFVY.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/iNbgH3SVfoA.mp4 b/videos-noise/assembling computer/iNbgH3SVfoA.mp4
+deleted file mode 100644
+index bad57ff..0000000
+Binary files a/videos-noise/assembling computer/iNbgH3SVfoA.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/mNpNRFJZEU0.mp4 b/videos-noise/assembling computer/mNpNRFJZEU0.mp4
+deleted file mode 100644
+index 14a707e..0000000
+Binary files a/videos-noise/assembling computer/mNpNRFJZEU0.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/phCDgUs-xuE.mp4 b/videos-noise/assembling computer/phCDgUs-xuE.mp4
+deleted file mode 100644
+index 3328936..0000000
+Binary files a/videos-noise/assembling computer/phCDgUs-xuE.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/rbL6KS0W7qE.mp4 b/videos-noise/assembling computer/rbL6KS0W7qE.mp4
+deleted file mode 100644
+index ee84339..0000000
+Binary files a/videos-noise/assembling computer/rbL6KS0W7qE.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/rmTkH653GjE.mp4 b/videos-noise/assembling computer/rmTkH653GjE.mp4
+deleted file mode 100644
+index 741330a..0000000
+Binary files a/videos-noise/assembling computer/rmTkH653GjE.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/vlxC4SPnXao.mp4 b/videos-noise/assembling computer/vlxC4SPnXao.mp4
+deleted file mode 100644
+index d92c7fc..0000000
+Binary files a/videos-noise/assembling computer/vlxC4SPnXao.mp4 and /dev/null differ
+diff --git a/videos-noise/assembling computer/xJfYn0nuK7o.mp4 b/videos-noise/assembling computer/xJfYn0nuK7o.mp4
+deleted file mode 100644
+index d6de13c..0000000
+Binary files a/videos-noise/assembling computer/xJfYn0nuK7o.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/6ewaKnvGYxo.mp4 b/videos-noise/auctioning/6ewaKnvGYxo.mp4
+deleted file mode 100644
+index e217752..0000000
+Binary files a/videos-noise/auctioning/6ewaKnvGYxo.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/9I48x3cuCL8.mp4 b/videos-noise/auctioning/9I48x3cuCL8.mp4
+deleted file mode 100644
+index b4e38cf..0000000
+Binary files a/videos-noise/auctioning/9I48x3cuCL8.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/BKfEO54q85s.mp4 b/videos-noise/auctioning/BKfEO54q85s.mp4
+deleted file mode 100644
+index ee88090..0000000
+Binary files a/videos-noise/auctioning/BKfEO54q85s.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/G9BMMjL4Q28.mp4 b/videos-noise/auctioning/G9BMMjL4Q28.mp4
+deleted file mode 100644
+index 6da4f4f..0000000
+Binary files a/videos-noise/auctioning/G9BMMjL4Q28.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/IMJ1Pn-pkQc.mp4 b/videos-noise/auctioning/IMJ1Pn-pkQc.mp4
+deleted file mode 100644
+index 3ab9790..0000000
+Binary files a/videos-noise/auctioning/IMJ1Pn-pkQc.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/Mn2k_zdhNLg.mp4 b/videos-noise/auctioning/Mn2k_zdhNLg.mp4
+deleted file mode 100644
+index 9313db6..0000000
+Binary files a/videos-noise/auctioning/Mn2k_zdhNLg.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/PC06PpkZD5o.mp4 b/videos-noise/auctioning/PC06PpkZD5o.mp4
+deleted file mode 100644
+index 55803af..0000000
+Binary files a/videos-noise/auctioning/PC06PpkZD5o.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/PoKc1k4HVds.mp4 b/videos-noise/auctioning/PoKc1k4HVds.mp4
+deleted file mode 100644
+index ca964fd..0000000
+Binary files a/videos-noise/auctioning/PoKc1k4HVds.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/Q0aPAgJE6IQ.mp4 b/videos-noise/auctioning/Q0aPAgJE6IQ.mp4
+deleted file mode 100644
+index 53447e3..0000000
+Binary files a/videos-noise/auctioning/Q0aPAgJE6IQ.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/RreG3uhjLy8.mp4 b/videos-noise/auctioning/RreG3uhjLy8.mp4
+deleted file mode 100644
+index 196d76b..0000000
+Binary files a/videos-noise/auctioning/RreG3uhjLy8.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/a-1VxopxYks.mp4 b/videos-noise/auctioning/a-1VxopxYks.mp4
+deleted file mode 100644
+index c9fc5e0..0000000
+Binary files a/videos-noise/auctioning/a-1VxopxYks.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/dSgDtWr0PA0.mp4 b/videos-noise/auctioning/dSgDtWr0PA0.mp4
+deleted file mode 100644
+index 509bfea..0000000
+Binary files a/videos-noise/auctioning/dSgDtWr0PA0.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/dlKUBhtBfsQ.mp4 b/videos-noise/auctioning/dlKUBhtBfsQ.mp4
+deleted file mode 100644
+index 6301e76..0000000
+Binary files a/videos-noise/auctioning/dlKUBhtBfsQ.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/gi3j7Ub2d18.mp4 b/videos-noise/auctioning/gi3j7Ub2d18.mp4
+deleted file mode 100644
+index 515fcd9..0000000
+Binary files a/videos-noise/auctioning/gi3j7Ub2d18.mp4 and /dev/null differ
+diff --git a/videos-noise/auctioning/pjMHqBSP_-M.mp4 b/videos-noise/auctioning/pjMHqBSP_-M.mp4
+deleted file mode 100644
+index 2821869..0000000
+Binary files a/videos-noise/auctioning/pjMHqBSP_-M.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/1A1uQf-Exsc.mp4 b/videos-noise/baby waking up/1A1uQf-Exsc.mp4
+deleted file mode 100644
+index fd5d8b9..0000000
+Binary files a/videos-noise/baby waking up/1A1uQf-Exsc.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/38QWS2QcC5M.mp4 b/videos-noise/baby waking up/38QWS2QcC5M.mp4
+deleted file mode 100644
+index 1e3c3d5..0000000
+Binary files a/videos-noise/baby waking up/38QWS2QcC5M.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/CmNo7kb8sTY.mp4 b/videos-noise/baby waking up/CmNo7kb8sTY.mp4
+deleted file mode 100644
+index 9701ed3..0000000
+Binary files a/videos-noise/baby waking up/CmNo7kb8sTY.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/EbgTfeN5tIo.mp4 b/videos-noise/baby waking up/EbgTfeN5tIo.mp4
+deleted file mode 100644
+index 83fd260..0000000
+Binary files a/videos-noise/baby waking up/EbgTfeN5tIo.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/HVrR3h9gokM.mp4 b/videos-noise/baby waking up/HVrR3h9gokM.mp4
+deleted file mode 100644
+index f303cba..0000000
+Binary files a/videos-noise/baby waking up/HVrR3h9gokM.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/Q-EOz8QWnsY.mp4 b/videos-noise/baby waking up/Q-EOz8QWnsY.mp4
+deleted file mode 100644
+index 73e2894..0000000
+Binary files a/videos-noise/baby waking up/Q-EOz8QWnsY.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/SMDxDMNcmpw.mp4 b/videos-noise/baby waking up/SMDxDMNcmpw.mp4
+deleted file mode 100644
+index 1106eae..0000000
+Binary files a/videos-noise/baby waking up/SMDxDMNcmpw.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/Vt_nL3qwFoQ.mp4 b/videos-noise/baby waking up/Vt_nL3qwFoQ.mp4
+deleted file mode 100644
+index 31845b0..0000000
+Binary files a/videos-noise/baby waking up/Vt_nL3qwFoQ.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/biyy3pZX1ls.mp4 b/videos-noise/baby waking up/biyy3pZX1ls.mp4
+deleted file mode 100644
+index 84067d6..0000000
+Binary files a/videos-noise/baby waking up/biyy3pZX1ls.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/d6pV0wYqDI8.mp4 b/videos-noise/baby waking up/d6pV0wYqDI8.mp4
+deleted file mode 100644
+index c3d2113..0000000
+Binary files a/videos-noise/baby waking up/d6pV0wYqDI8.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/eQKpgoez_d4.mp4 b/videos-noise/baby waking up/eQKpgoez_d4.mp4
+deleted file mode 100644
+index 248141a..0000000
+Binary files a/videos-noise/baby waking up/eQKpgoez_d4.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/fXWa3S1ZIHw.mp4 b/videos-noise/baby waking up/fXWa3S1ZIHw.mp4
+deleted file mode 100644
+index 25a4e47..0000000
+Binary files a/videos-noise/baby waking up/fXWa3S1ZIHw.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/i6ljbAyJXvk.mp4 b/videos-noise/baby waking up/i6ljbAyJXvk.mp4
+deleted file mode 100644
+index 96f07a0..0000000
+Binary files a/videos-noise/baby waking up/i6ljbAyJXvk.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/k8AyFUwrJQY.mp4 b/videos-noise/baby waking up/k8AyFUwrJQY.mp4
+deleted file mode 100644
+index 29cdea4..0000000
+Binary files a/videos-noise/baby waking up/k8AyFUwrJQY.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/l3X12dUMWZE.mp4 b/videos-noise/baby waking up/l3X12dUMWZE.mp4
+deleted file mode 100644
+index aef2907..0000000
+Binary files a/videos-noise/baby waking up/l3X12dUMWZE.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/m_Km54ZUV0E.mp4 b/videos-noise/baby waking up/m_Km54ZUV0E.mp4
+deleted file mode 100644
+index b75ed61..0000000
+Binary files a/videos-noise/baby waking up/m_Km54ZUV0E.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/mpWF-78r7R0.mp4 b/videos-noise/baby waking up/mpWF-78r7R0.mp4
+deleted file mode 100644
+index 4ed00c2..0000000
+Binary files a/videos-noise/baby waking up/mpWF-78r7R0.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/o3CiPw-AeB0.mp4 b/videos-noise/baby waking up/o3CiPw-AeB0.mp4
+deleted file mode 100644
+index 2853863..0000000
+Binary files a/videos-noise/baby waking up/o3CiPw-AeB0.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/oZ5lWTKBSzg.mp4 b/videos-noise/baby waking up/oZ5lWTKBSzg.mp4
+deleted file mode 100644
+index b124a92..0000000
+Binary files a/videos-noise/baby waking up/oZ5lWTKBSzg.mp4 and /dev/null differ
+diff --git a/videos-noise/baby waking up/wOu2zhEb9-I.mp4 b/videos-noise/baby waking up/wOu2zhEb9-I.mp4
+deleted file mode 100644
+index d3af78e..0000000
+Binary files a/videos-noise/baby waking up/wOu2zhEb9-I.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/-1MXpPymXFU.mp4 b/videos-noise/baking cookies/-1MXpPymXFU.mp4
+deleted file mode 100644
+index fa89e59..0000000
+Binary files a/videos-noise/baking cookies/-1MXpPymXFU.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/2djtbcbuhkI.mp4 b/videos-noise/baking cookies/2djtbcbuhkI.mp4
+deleted file mode 100644
+index 4d2e785..0000000
+Binary files a/videos-noise/baking cookies/2djtbcbuhkI.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/3SJpuJctSCY.mp4 b/videos-noise/baking cookies/3SJpuJctSCY.mp4
+deleted file mode 100644
+index 3f1c36c..0000000
+Binary files a/videos-noise/baking cookies/3SJpuJctSCY.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/4wLwBzMZ0lM.mp4 b/videos-noise/baking cookies/4wLwBzMZ0lM.mp4
+deleted file mode 100644
+index 98c733e..0000000
+Binary files a/videos-noise/baking cookies/4wLwBzMZ0lM.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/7QDJMWK9BFo.mp4 b/videos-noise/baking cookies/7QDJMWK9BFo.mp4
+deleted file mode 100644
+index b3da774..0000000
+Binary files a/videos-noise/baking cookies/7QDJMWK9BFo.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/BFmEYJwwpW8.mp4 b/videos-noise/baking cookies/BFmEYJwwpW8.mp4
+deleted file mode 100644
+index 8e9eb17..0000000
+Binary files a/videos-noise/baking cookies/BFmEYJwwpW8.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/Djn5F7_Dy44.mp4 b/videos-noise/baking cookies/Djn5F7_Dy44.mp4
+deleted file mode 100644
+index c3dd06f..0000000
+Binary files a/videos-noise/baking cookies/Djn5F7_Dy44.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/FreqqAT1YmU.mp4 b/videos-noise/baking cookies/FreqqAT1YmU.mp4
+deleted file mode 100644
+index c243868..0000000
+Binary files a/videos-noise/baking cookies/FreqqAT1YmU.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/JPQQE14eWdQ.mp4 b/videos-noise/baking cookies/JPQQE14eWdQ.mp4
+deleted file mode 100644
+index 8513027..0000000
+Binary files a/videos-noise/baking cookies/JPQQE14eWdQ.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/LMvTKYBz-f8.mp4 b/videos-noise/baking cookies/LMvTKYBz-f8.mp4
+deleted file mode 100644
+index cad067c..0000000
+Binary files a/videos-noise/baking cookies/LMvTKYBz-f8.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/M2xdggeRyPI.mp4 b/videos-noise/baking cookies/M2xdggeRyPI.mp4
+deleted file mode 100644
+index c1f9291..0000000
+Binary files a/videos-noise/baking cookies/M2xdggeRyPI.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/Naw9Kxecm_c.mp4 b/videos-noise/baking cookies/Naw9Kxecm_c.mp4
+deleted file mode 100644
+index 045725c..0000000
+Binary files a/videos-noise/baking cookies/Naw9Kxecm_c.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/OZr_bLz_VFo.mp4 b/videos-noise/baking cookies/OZr_bLz_VFo.mp4
+deleted file mode 100644
+index b404bf0..0000000
+Binary files a/videos-noise/baking cookies/OZr_bLz_VFo.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/PLfrD6gX0pQ.mp4 b/videos-noise/baking cookies/PLfrD6gX0pQ.mp4
+deleted file mode 100644
+index 0825ec4..0000000
+Binary files a/videos-noise/baking cookies/PLfrD6gX0pQ.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/PitTCk7obqw.mp4 b/videos-noise/baking cookies/PitTCk7obqw.mp4
+deleted file mode 100644
+index 171dd0f..0000000
+Binary files a/videos-noise/baking cookies/PitTCk7obqw.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/Ra68gMw-vH4.mp4 b/videos-noise/baking cookies/Ra68gMw-vH4.mp4
+deleted file mode 100644
+index 339fb64..0000000
+Binary files a/videos-noise/baking cookies/Ra68gMw-vH4.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/UCqmi1E2zu8.mp4 b/videos-noise/baking cookies/UCqmi1E2zu8.mp4
+deleted file mode 100644
+index 29a6178..0000000
+Binary files a/videos-noise/baking cookies/UCqmi1E2zu8.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/WJipgy0vUWE.mp4 b/videos-noise/baking cookies/WJipgy0vUWE.mp4
+deleted file mode 100644
+index 55f7452..0000000
+Binary files a/videos-noise/baking cookies/WJipgy0vUWE.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/Zu50l83IQog.mp4 b/videos-noise/baking cookies/Zu50l83IQog.mp4
+deleted file mode 100644
+index db1e429..0000000
+Binary files a/videos-noise/baking cookies/Zu50l83IQog.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/f8NyRcIsdFU.mp4 b/videos-noise/baking cookies/f8NyRcIsdFU.mp4
+deleted file mode 100644
+index 02f3f6c..0000000
+Binary files a/videos-noise/baking cookies/f8NyRcIsdFU.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/i8iCCjdTIh8.mp4 b/videos-noise/baking cookies/i8iCCjdTIh8.mp4
+deleted file mode 100644
+index 04cc7b5..0000000
+Binary files a/videos-noise/baking cookies/i8iCCjdTIh8.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/lykmHnb4mn4.mp4 b/videos-noise/baking cookies/lykmHnb4mn4.mp4
+deleted file mode 100644
+index add7626..0000000
+Binary files a/videos-noise/baking cookies/lykmHnb4mn4.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/mzsb9SXiGF8.mp4 b/videos-noise/baking cookies/mzsb9SXiGF8.mp4
+deleted file mode 100644
+index b72729d..0000000
+Binary files a/videos-noise/baking cookies/mzsb9SXiGF8.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/odDGHQ14gAI.mp4 b/videos-noise/baking cookies/odDGHQ14gAI.mp4
+deleted file mode 100644
+index 2d7be6a..0000000
+Binary files a/videos-noise/baking cookies/odDGHQ14gAI.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/pKAkazfIXFw.mp4 b/videos-noise/baking cookies/pKAkazfIXFw.mp4
+deleted file mode 100644
+index eb32588..0000000
+Binary files a/videos-noise/baking cookies/pKAkazfIXFw.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/tmWc2YI0P7o.mp4 b/videos-noise/baking cookies/tmWc2YI0P7o.mp4
+deleted file mode 100644
+index 5362894..0000000
+Binary files a/videos-noise/baking cookies/tmWc2YI0P7o.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/yNWFNbToakw.mp4 b/videos-noise/baking cookies/yNWFNbToakw.mp4
+deleted file mode 100644
+index 9f45211..0000000
+Binary files a/videos-noise/baking cookies/yNWFNbToakw.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/yh-UhltDkbs.mp4 b/videos-noise/baking cookies/yh-UhltDkbs.mp4
+deleted file mode 100644
+index 93a92d1..0000000
+Binary files a/videos-noise/baking cookies/yh-UhltDkbs.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/yrlT9W5j3FA.mp4 b/videos-noise/baking cookies/yrlT9W5j3FA.mp4
+deleted file mode 100644
+index 6038848..0000000
+Binary files a/videos-noise/baking cookies/yrlT9W5j3FA.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/ysacoaKDCMA.mp4 b/videos-noise/baking cookies/ysacoaKDCMA.mp4
+deleted file mode 100644
+index b9cfe2b..0000000
+Binary files a/videos-noise/baking cookies/ysacoaKDCMA.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/zDGb9iQfSTo.mp4 b/videos-noise/baking cookies/zDGb9iQfSTo.mp4
+deleted file mode 100644
+index bf76fef..0000000
+Binary files a/videos-noise/baking cookies/zDGb9iQfSTo.mp4 and /dev/null differ
+diff --git a/videos-noise/baking cookies/zWQDzYH6IFk.mp4 b/videos-noise/baking cookies/zWQDzYH6IFk.mp4
+deleted file mode 100644
+index 877fcd5..0000000
+Binary files a/videos-noise/baking cookies/zWQDzYH6IFk.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/--gx7yb1-x0.mp4 b/videos-noise/balloon blowing/--gx7yb1-x0.mp4
+deleted file mode 100644
+index f659227..0000000
+Binary files a/videos-noise/balloon blowing/--gx7yb1-x0.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/0e13-uPv0DM.mp4 b/videos-noise/balloon blowing/0e13-uPv0DM.mp4
+deleted file mode 100644
+index e0e198c..0000000
+Binary files a/videos-noise/balloon blowing/0e13-uPv0DM.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/32h93fmukB4.mp4 b/videos-noise/balloon blowing/32h93fmukB4.mp4
+deleted file mode 100644
+index e8b60fa..0000000
+Binary files a/videos-noise/balloon blowing/32h93fmukB4.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/3Yi-dS2s2xY.mp4 b/videos-noise/balloon blowing/3Yi-dS2s2xY.mp4
+deleted file mode 100644
+index 76ca7bf..0000000
+Binary files a/videos-noise/balloon blowing/3Yi-dS2s2xY.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/63_Xu-Lb-oI.mp4 b/videos-noise/balloon blowing/63_Xu-Lb-oI.mp4
+deleted file mode 100644
+index 4b63712..0000000
+Binary files a/videos-noise/balloon blowing/63_Xu-Lb-oI.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/6kudhkMycH0.mp4 b/videos-noise/balloon blowing/6kudhkMycH0.mp4
+deleted file mode 100644
+index 0d9cc55..0000000
+Binary files a/videos-noise/balloon blowing/6kudhkMycH0.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/9-eWJ7CLvUI.mp4 b/videos-noise/balloon blowing/9-eWJ7CLvUI.mp4
+deleted file mode 100644
+index e3161b1..0000000
+Binary files a/videos-noise/balloon blowing/9-eWJ7CLvUI.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/C6mtuCia5K8.mp4 b/videos-noise/balloon blowing/C6mtuCia5K8.mp4
+deleted file mode 100644
+index 46d6ce2..0000000
+Binary files a/videos-noise/balloon blowing/C6mtuCia5K8.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/DIRJHaa1Ltc.mp4 b/videos-noise/balloon blowing/DIRJHaa1Ltc.mp4
+deleted file mode 100644
+index 79d84b2..0000000
+Binary files a/videos-noise/balloon blowing/DIRJHaa1Ltc.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/DjcTQZeLYMI.mp4 b/videos-noise/balloon blowing/DjcTQZeLYMI.mp4
+deleted file mode 100644
+index 69f4d0a..0000000
+Binary files a/videos-noise/balloon blowing/DjcTQZeLYMI.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/FVEZ1smlcyg.mp4 b/videos-noise/balloon blowing/FVEZ1smlcyg.mp4
+deleted file mode 100644
+index 2c34b00..0000000
+Binary files a/videos-noise/balloon blowing/FVEZ1smlcyg.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/G0Q_-t7MSmA.mp4 b/videos-noise/balloon blowing/G0Q_-t7MSmA.mp4
+deleted file mode 100644
+index ec2a7bb..0000000
+Binary files a/videos-noise/balloon blowing/G0Q_-t7MSmA.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/LG1l5fAWA0Y.mp4 b/videos-noise/balloon blowing/LG1l5fAWA0Y.mp4
+deleted file mode 100644
+index 804c83c..0000000
+Binary files a/videos-noise/balloon blowing/LG1l5fAWA0Y.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/PJtkzuVzUnQ.mp4 b/videos-noise/balloon blowing/PJtkzuVzUnQ.mp4
+deleted file mode 100644
+index 2ed709a..0000000
+Binary files a/videos-noise/balloon blowing/PJtkzuVzUnQ.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/Rty_0u3-kic.mp4 b/videos-noise/balloon blowing/Rty_0u3-kic.mp4
+deleted file mode 100644
+index eae893a..0000000
+Binary files a/videos-noise/balloon blowing/Rty_0u3-kic.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/TBkgpaJtPM0.mp4 b/videos-noise/balloon blowing/TBkgpaJtPM0.mp4
+deleted file mode 100644
+index ae04bf9..0000000
+Binary files a/videos-noise/balloon blowing/TBkgpaJtPM0.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/Z37mKNhwzQo.mp4 b/videos-noise/balloon blowing/Z37mKNhwzQo.mp4
+deleted file mode 100644
+index 9d2edde..0000000
+Binary files a/videos-noise/balloon blowing/Z37mKNhwzQo.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/bW9GAfOc4sI.mp4 b/videos-noise/balloon blowing/bW9GAfOc4sI.mp4
+deleted file mode 100644
+index 8821b95..0000000
+Binary files a/videos-noise/balloon blowing/bW9GAfOc4sI.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/g473Uj-y_aI.mp4 b/videos-noise/balloon blowing/g473Uj-y_aI.mp4
+deleted file mode 100644
+index 4df50c2..0000000
+Binary files a/videos-noise/balloon blowing/g473Uj-y_aI.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/hPC-BgggGQE.mp4 b/videos-noise/balloon blowing/hPC-BgggGQE.mp4
+deleted file mode 100644
+index 82a9f1e..0000000
+Binary files a/videos-noise/balloon blowing/hPC-BgggGQE.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/inx5TP2Qq0o.mp4 b/videos-noise/balloon blowing/inx5TP2Qq0o.mp4
+deleted file mode 100644
+index 34ca9c0..0000000
+Binary files a/videos-noise/balloon blowing/inx5TP2Qq0o.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/isTUMgIfMjQ.mp4 b/videos-noise/balloon blowing/isTUMgIfMjQ.mp4
+deleted file mode 100644
+index a0b0a95..0000000
+Binary files a/videos-noise/balloon blowing/isTUMgIfMjQ.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/oxJ1_pOwV8c.mp4 b/videos-noise/balloon blowing/oxJ1_pOwV8c.mp4
+deleted file mode 100644
+index db715b1..0000000
+Binary files a/videos-noise/balloon blowing/oxJ1_pOwV8c.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/v4aBke1vHeA.mp4 b/videos-noise/balloon blowing/v4aBke1vHeA.mp4
+deleted file mode 100644
+index 133ac18..0000000
+Binary files a/videos-noise/balloon blowing/v4aBke1vHeA.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/xkH9H582gI0.mp4 b/videos-noise/balloon blowing/xkH9H582gI0.mp4
+deleted file mode 100644
+index c4e56a1..0000000
+Binary files a/videos-noise/balloon blowing/xkH9H582gI0.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/z1P3kisboDA.mp4 b/videos-noise/balloon blowing/z1P3kisboDA.mp4
+deleted file mode 100644
+index 4be667d..0000000
+Binary files a/videos-noise/balloon blowing/z1P3kisboDA.mp4 and /dev/null differ
+diff --git a/videos-noise/balloon blowing/zjlsXhfS0cI.mp4 b/videos-noise/balloon blowing/zjlsXhfS0cI.mp4
+deleted file mode 100644
+index 4c520b2..0000000
+Binary files a/videos-noise/balloon blowing/zjlsXhfS0cI.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/2ffYeuTjjvI.mp4 b/videos-noise/bandaging/2ffYeuTjjvI.mp4
+deleted file mode 100644
+index a93aa2b..0000000
+Binary files a/videos-noise/bandaging/2ffYeuTjjvI.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/3nd2OjG6D0Q.mp4 b/videos-noise/bandaging/3nd2OjG6D0Q.mp4
+deleted file mode 100644
+index c37256e..0000000
+Binary files a/videos-noise/bandaging/3nd2OjG6D0Q.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/4ZEk58w_cFM.mp4 b/videos-noise/bandaging/4ZEk58w_cFM.mp4
+deleted file mode 100644
+index af568cb..0000000
+Binary files a/videos-noise/bandaging/4ZEk58w_cFM.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/53MYuHDbg5E.mp4 b/videos-noise/bandaging/53MYuHDbg5E.mp4
+deleted file mode 100644
+index 729824e..0000000
+Binary files a/videos-noise/bandaging/53MYuHDbg5E.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/Bl_MVHPSGgo.mp4 b/videos-noise/bandaging/Bl_MVHPSGgo.mp4
+deleted file mode 100644
+index bd4e1d8..0000000
+Binary files a/videos-noise/bandaging/Bl_MVHPSGgo.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/CTJpbVmSyBA.mp4 b/videos-noise/bandaging/CTJpbVmSyBA.mp4
+deleted file mode 100644
+index d14d544..0000000
+Binary files a/videos-noise/bandaging/CTJpbVmSyBA.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/GjfvIgRnv58.mp4 b/videos-noise/bandaging/GjfvIgRnv58.mp4
+deleted file mode 100644
+index cafabfe..0000000
+Binary files a/videos-noise/bandaging/GjfvIgRnv58.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/HPHQ_-FMewA.mp4 b/videos-noise/bandaging/HPHQ_-FMewA.mp4
+deleted file mode 100644
+index 2be2ced..0000000
+Binary files a/videos-noise/bandaging/HPHQ_-FMewA.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/HZadX9Gjmv4.mp4 b/videos-noise/bandaging/HZadX9Gjmv4.mp4
+deleted file mode 100644
+index e8cabe8..0000000
+Binary files a/videos-noise/bandaging/HZadX9Gjmv4.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/HsJ_BSfkWuY.mp4 b/videos-noise/bandaging/HsJ_BSfkWuY.mp4
+deleted file mode 100644
+index d4c4f67..0000000
+Binary files a/videos-noise/bandaging/HsJ_BSfkWuY.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/Ty-59QyB76U.mp4 b/videos-noise/bandaging/Ty-59QyB76U.mp4
+deleted file mode 100644
+index 6acb282..0000000
+Binary files a/videos-noise/bandaging/Ty-59QyB76U.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/W4dstLcSRK4.mp4 b/videos-noise/bandaging/W4dstLcSRK4.mp4
+deleted file mode 100644
+index ec7e68b..0000000
+Binary files a/videos-noise/bandaging/W4dstLcSRK4.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/llElIf_67ew.mp4 b/videos-noise/bandaging/llElIf_67ew.mp4
+deleted file mode 100644
+index f6e473d..0000000
+Binary files a/videos-noise/bandaging/llElIf_67ew.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/oIaVJsvcOd0.mp4 b/videos-noise/bandaging/oIaVJsvcOd0.mp4
+deleted file mode 100644
+index 5dbd5b6..0000000
+Binary files a/videos-noise/bandaging/oIaVJsvcOd0.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/p0mXX6ia-pQ.mp4 b/videos-noise/bandaging/p0mXX6ia-pQ.mp4
+deleted file mode 100644
+index ab53e16..0000000
+Binary files a/videos-noise/bandaging/p0mXX6ia-pQ.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/sbTLuBYPH1Y.mp4 b/videos-noise/bandaging/sbTLuBYPH1Y.mp4
+deleted file mode 100644
+index f3d3767..0000000
+Binary files a/videos-noise/bandaging/sbTLuBYPH1Y.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/stdt0_P2xfw.mp4 b/videos-noise/bandaging/stdt0_P2xfw.mp4
+deleted file mode 100644
+index 47b080d..0000000
+Binary files a/videos-noise/bandaging/stdt0_P2xfw.mp4 and /dev/null differ
+diff --git a/videos-noise/bandaging/y2UIUcN8fcs.mp4 b/videos-noise/bandaging/y2UIUcN8fcs.mp4
+deleted file mode 100644
+index 0900922..0000000
+Binary files a/videos-noise/bandaging/y2UIUcN8fcs.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/4sJMR7sNeAI.mp4 b/videos-noise/barbequing/4sJMR7sNeAI.mp4
+deleted file mode 100644
+index e6f1585..0000000
+Binary files a/videos-noise/barbequing/4sJMR7sNeAI.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/8MMLW6lHFOk.mp4 b/videos-noise/barbequing/8MMLW6lHFOk.mp4
+deleted file mode 100644
+index ac9c27e..0000000
+Binary files a/videos-noise/barbequing/8MMLW6lHFOk.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/8k5LbCk1Yi8.mp4 b/videos-noise/barbequing/8k5LbCk1Yi8.mp4
+deleted file mode 100644
+index 9eba60f..0000000
+Binary files a/videos-noise/barbequing/8k5LbCk1Yi8.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/95Eyp5L8Qbw.mp4 b/videos-noise/barbequing/95Eyp5L8Qbw.mp4
+deleted file mode 100644
+index 2a6dd5d..0000000
+Binary files a/videos-noise/barbequing/95Eyp5L8Qbw.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/Ad7Lv_EglrE.mp4 b/videos-noise/barbequing/Ad7Lv_EglrE.mp4
+deleted file mode 100644
+index 24964be..0000000
+Binary files a/videos-noise/barbequing/Ad7Lv_EglrE.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/D3CegX7j_n4.mp4 b/videos-noise/barbequing/D3CegX7j_n4.mp4
+deleted file mode 100644
+index 1e4fb5a..0000000
+Binary files a/videos-noise/barbequing/D3CegX7j_n4.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/F7VxHBXzLRA.mp4 b/videos-noise/barbequing/F7VxHBXzLRA.mp4
+deleted file mode 100644
+index d65585a..0000000
+Binary files a/videos-noise/barbequing/F7VxHBXzLRA.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/G6clgLvAmt0.mp4 b/videos-noise/barbequing/G6clgLvAmt0.mp4
+deleted file mode 100644
+index 9481e3a..0000000
+Binary files a/videos-noise/barbequing/G6clgLvAmt0.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/GBl3SL0NVGU.mp4 b/videos-noise/barbequing/GBl3SL0NVGU.mp4
+deleted file mode 100644
+index c0d4f03..0000000
+Binary files a/videos-noise/barbequing/GBl3SL0NVGU.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/GQdxNpKauGg.mp4 b/videos-noise/barbequing/GQdxNpKauGg.mp4
+deleted file mode 100644
+index 0bc6d11..0000000
+Binary files a/videos-noise/barbequing/GQdxNpKauGg.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/L5rL7EJSbHw.mp4 b/videos-noise/barbequing/L5rL7EJSbHw.mp4
+deleted file mode 100644
+index ae2776a..0000000
+Binary files a/videos-noise/barbequing/L5rL7EJSbHw.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/MM3gwGMfHJY.mp4 b/videos-noise/barbequing/MM3gwGMfHJY.mp4
+deleted file mode 100644
+index 154508f..0000000
+Binary files a/videos-noise/barbequing/MM3gwGMfHJY.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/N-dw3-QpalU.mp4 b/videos-noise/barbequing/N-dw3-QpalU.mp4
+deleted file mode 100644
+index b25f48f..0000000
+Binary files a/videos-noise/barbequing/N-dw3-QpalU.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/N0PPYMWrLro.mp4 b/videos-noise/barbequing/N0PPYMWrLro.mp4
+deleted file mode 100644
+index 6956cde..0000000
+Binary files a/videos-noise/barbequing/N0PPYMWrLro.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/OSu0vovlLSQ.mp4 b/videos-noise/barbequing/OSu0vovlLSQ.mp4
+deleted file mode 100644
+index ea52cb3..0000000
+Binary files a/videos-noise/barbequing/OSu0vovlLSQ.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/OuUFSFJdOD8.mp4 b/videos-noise/barbequing/OuUFSFJdOD8.mp4
+deleted file mode 100644
+index 4fae9b7..0000000
+Binary files a/videos-noise/barbequing/OuUFSFJdOD8.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/Sg0gtBxw37U.mp4 b/videos-noise/barbequing/Sg0gtBxw37U.mp4
+deleted file mode 100644
+index cfefd4c..0000000
+Binary files a/videos-noise/barbequing/Sg0gtBxw37U.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/T8pza6R53KU.mp4 b/videos-noise/barbequing/T8pza6R53KU.mp4
+deleted file mode 100644
+index 8a04305..0000000
+Binary files a/videos-noise/barbequing/T8pza6R53KU.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/Tv8xgqV3ks4.mp4 b/videos-noise/barbequing/Tv8xgqV3ks4.mp4
+deleted file mode 100644
+index c394606..0000000
+Binary files a/videos-noise/barbequing/Tv8xgqV3ks4.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/XRoocV_j4nQ.mp4 b/videos-noise/barbequing/XRoocV_j4nQ.mp4
+deleted file mode 100644
+index d2599e9..0000000
+Binary files a/videos-noise/barbequing/XRoocV_j4nQ.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/XZ-ut9Impas.mp4 b/videos-noise/barbequing/XZ-ut9Impas.mp4
+deleted file mode 100644
+index 1abdf75..0000000
+Binary files a/videos-noise/barbequing/XZ-ut9Impas.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/Y4UG6PDN9bc.mp4 b/videos-noise/barbequing/Y4UG6PDN9bc.mp4
+deleted file mode 100644
+index 7fd7215..0000000
+Binary files a/videos-noise/barbequing/Y4UG6PDN9bc.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/ZOf2EeyTVuI.mp4 b/videos-noise/barbequing/ZOf2EeyTVuI.mp4
+deleted file mode 100644
+index dd77691..0000000
+Binary files a/videos-noise/barbequing/ZOf2EeyTVuI.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/_SeqTpJSWAE.mp4 b/videos-noise/barbequing/_SeqTpJSWAE.mp4
+deleted file mode 100644
+index 2b462fb..0000000
+Binary files a/videos-noise/barbequing/_SeqTpJSWAE.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/_YqKMi6RVxQ.mp4 b/videos-noise/barbequing/_YqKMi6RVxQ.mp4
+deleted file mode 100644
+index 4484b5c..0000000
+Binary files a/videos-noise/barbequing/_YqKMi6RVxQ.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/cDMYot4kaI0.mp4 b/videos-noise/barbequing/cDMYot4kaI0.mp4
+deleted file mode 100644
+index b8133f0..0000000
+Binary files a/videos-noise/barbequing/cDMYot4kaI0.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/cHbJIOHUheY.mp4 b/videos-noise/barbequing/cHbJIOHUheY.mp4
+deleted file mode 100644
+index 5f997cc..0000000
+Binary files a/videos-noise/barbequing/cHbJIOHUheY.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/cJaHXPAWPp0.mp4 b/videos-noise/barbequing/cJaHXPAWPp0.mp4
+deleted file mode 100644
+index 5389a80..0000000
+Binary files a/videos-noise/barbequing/cJaHXPAWPp0.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/dMPPk6hmkNI.mp4 b/videos-noise/barbequing/dMPPk6hmkNI.mp4
+deleted file mode 100644
+index fa2eac7..0000000
+Binary files a/videos-noise/barbequing/dMPPk6hmkNI.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/e2kt5yZxr4g.mp4 b/videos-noise/barbequing/e2kt5yZxr4g.mp4
+deleted file mode 100644
+index da8b1ca..0000000
+Binary files a/videos-noise/barbequing/e2kt5yZxr4g.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/k1Q7U65XalE.mp4 b/videos-noise/barbequing/k1Q7U65XalE.mp4
+deleted file mode 100644
+index 26cced1..0000000
+Binary files a/videos-noise/barbequing/k1Q7U65XalE.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/kbyKHGagm3Q.mp4 b/videos-noise/barbequing/kbyKHGagm3Q.mp4
+deleted file mode 100644
+index 241468d..0000000
+Binary files a/videos-noise/barbequing/kbyKHGagm3Q.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/l40_LN5w5Vo.mp4 b/videos-noise/barbequing/l40_LN5w5Vo.mp4
+deleted file mode 100644
+index 2df0a29..0000000
+Binary files a/videos-noise/barbequing/l40_LN5w5Vo.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/nirHQuxnIV8.mp4 b/videos-noise/barbequing/nirHQuxnIV8.mp4
+deleted file mode 100644
+index 51935d5..0000000
+Binary files a/videos-noise/barbequing/nirHQuxnIV8.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/ohk8S8pegCc.mp4 b/videos-noise/barbequing/ohk8S8pegCc.mp4
+deleted file mode 100644
+index b8467fb..0000000
+Binary files a/videos-noise/barbequing/ohk8S8pegCc.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/omdX44VPQIs.mp4 b/videos-noise/barbequing/omdX44VPQIs.mp4
+deleted file mode 100644
+index d8c9d1f..0000000
+Binary files a/videos-noise/barbequing/omdX44VPQIs.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/qTLso5Li5Pc.mp4 b/videos-noise/barbequing/qTLso5Li5Pc.mp4
+deleted file mode 100644
+index 7b5c544..0000000
+Binary files a/videos-noise/barbequing/qTLso5Li5Pc.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/r8ld8cywk9U.mp4 b/videos-noise/barbequing/r8ld8cywk9U.mp4
+deleted file mode 100644
+index 6442f7a..0000000
+Binary files a/videos-noise/barbequing/r8ld8cywk9U.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/s4CWrzyU1qs.mp4 b/videos-noise/barbequing/s4CWrzyU1qs.mp4
+deleted file mode 100644
+index ada80e3..0000000
+Binary files a/videos-noise/barbequing/s4CWrzyU1qs.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/tfiLWbyB-48.mp4 b/videos-noise/barbequing/tfiLWbyB-48.mp4
+deleted file mode 100644
+index fa6f4f0..0000000
+Binary files a/videos-noise/barbequing/tfiLWbyB-48.mp4 and /dev/null differ
+diff --git a/videos-noise/barbequing/vesa-Lxc3rU.mp4 b/videos-noise/barbequing/vesa-Lxc3rU.mp4
+deleted file mode 100644
+index f836545..0000000
+Binary files a/videos-noise/barbequing/vesa-Lxc3rU.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/3JKOc-rtfYA.mp4 b/videos-noise/bartending/3JKOc-rtfYA.mp4
+deleted file mode 100644
+index 65086b3..0000000
+Binary files a/videos-noise/bartending/3JKOc-rtfYA.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/5RGy0hid9EY.mp4 b/videos-noise/bartending/5RGy0hid9EY.mp4
+deleted file mode 100644
+index d4ee4a1..0000000
+Binary files a/videos-noise/bartending/5RGy0hid9EY.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/9SQ5Bauj-yc.mp4 b/videos-noise/bartending/9SQ5Bauj-yc.mp4
+deleted file mode 100644
+index a6a074e..0000000
+Binary files a/videos-noise/bartending/9SQ5Bauj-yc.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/9WEs6jxCV68.mp4 b/videos-noise/bartending/9WEs6jxCV68.mp4
+deleted file mode 100644
+index 12cb2d7..0000000
+Binary files a/videos-noise/bartending/9WEs6jxCV68.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/AxzsyUZSjps.mp4 b/videos-noise/bartending/AxzsyUZSjps.mp4
+deleted file mode 100644
+index e41d5ba..0000000
+Binary files a/videos-noise/bartending/AxzsyUZSjps.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/Bu00M4cZMdM.mp4 b/videos-noise/bartending/Bu00M4cZMdM.mp4
+deleted file mode 100644
+index 363a9e3..0000000
+Binary files a/videos-noise/bartending/Bu00M4cZMdM.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/Cj0CCxFfC6g.mp4 b/videos-noise/bartending/Cj0CCxFfC6g.mp4
+deleted file mode 100644
+index edee635..0000000
+Binary files a/videos-noise/bartending/Cj0CCxFfC6g.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/FSD869ro-jE.mp4 b/videos-noise/bartending/FSD869ro-jE.mp4
+deleted file mode 100644
+index c780341..0000000
+Binary files a/videos-noise/bartending/FSD869ro-jE.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/GMbPJNkwxLs.mp4 b/videos-noise/bartending/GMbPJNkwxLs.mp4
+deleted file mode 100644
+index 94b4651..0000000
+Binary files a/videos-noise/bartending/GMbPJNkwxLs.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/I7gaQnFsHq4.mp4 b/videos-noise/bartending/I7gaQnFsHq4.mp4
+deleted file mode 100644
+index c4e20d3..0000000
+Binary files a/videos-noise/bartending/I7gaQnFsHq4.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/IEhU63CR8Wg.mp4 b/videos-noise/bartending/IEhU63CR8Wg.mp4
+deleted file mode 100644
+index b390337..0000000
+Binary files a/videos-noise/bartending/IEhU63CR8Wg.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/SzepqwNNDmo.mp4 b/videos-noise/bartending/SzepqwNNDmo.mp4
+deleted file mode 100644
+index 79ce3ce..0000000
+Binary files a/videos-noise/bartending/SzepqwNNDmo.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/TfkMPlXX-iQ.mp4 b/videos-noise/bartending/TfkMPlXX-iQ.mp4
+deleted file mode 100644
+index f7663b7..0000000
+Binary files a/videos-noise/bartending/TfkMPlXX-iQ.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/_bZ8ATfiIoo.mp4 b/videos-noise/bartending/_bZ8ATfiIoo.mp4
+deleted file mode 100644
+index c8e4289..0000000
+Binary files a/videos-noise/bartending/_bZ8ATfiIoo.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/fxmrM7tuqFw.mp4 b/videos-noise/bartending/fxmrM7tuqFw.mp4
+deleted file mode 100644
+index 7d5bc72..0000000
+Binary files a/videos-noise/bartending/fxmrM7tuqFw.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/o8iCCryOTbo.mp4 b/videos-noise/bartending/o8iCCryOTbo.mp4
+deleted file mode 100644
+index 959b1a1..0000000
+Binary files a/videos-noise/bartending/o8iCCryOTbo.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/tPTlpmx8U9o.mp4 b/videos-noise/bartending/tPTlpmx8U9o.mp4
+deleted file mode 100644
+index 529ae04..0000000
+Binary files a/videos-noise/bartending/tPTlpmx8U9o.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/uEZwpuhUTCA.mp4 b/videos-noise/bartending/uEZwpuhUTCA.mp4
+deleted file mode 100644
+index 751c45e..0000000
+Binary files a/videos-noise/bartending/uEZwpuhUTCA.mp4 and /dev/null differ
+diff --git a/videos-noise/bartending/uekv7JgUzO8.mp4 b/videos-noise/bartending/uekv7JgUzO8.mp4
+deleted file mode 100644
+index 965e804..0000000
+Binary files a/videos-noise/bartending/uekv7JgUzO8.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/3WrohXQZbhg.mp4 b/videos-noise/beatboxing/3WrohXQZbhg.mp4
+deleted file mode 100644
+index 2112fe8..0000000
+Binary files a/videos-noise/beatboxing/3WrohXQZbhg.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/52wT9kPLElI.mp4 b/videos-noise/beatboxing/52wT9kPLElI.mp4
+deleted file mode 100644
+index 117446c..0000000
+Binary files a/videos-noise/beatboxing/52wT9kPLElI.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/6A1GUkCdQsM.mp4 b/videos-noise/beatboxing/6A1GUkCdQsM.mp4
+deleted file mode 100644
+index 7454804..0000000
+Binary files a/videos-noise/beatboxing/6A1GUkCdQsM.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/9hlkvk50h_U.mp4 b/videos-noise/beatboxing/9hlkvk50h_U.mp4
+deleted file mode 100644
+index 1c7b704..0000000
+Binary files a/videos-noise/beatboxing/9hlkvk50h_U.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/9hpLd3RtrtA.mp4 b/videos-noise/beatboxing/9hpLd3RtrtA.mp4
+deleted file mode 100644
+index 1c22e25..0000000
+Binary files a/videos-noise/beatboxing/9hpLd3RtrtA.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/9vX3KnnOIFI.mp4 b/videos-noise/beatboxing/9vX3KnnOIFI.mp4
+deleted file mode 100644
+index 6a2ba59..0000000
+Binary files a/videos-noise/beatboxing/9vX3KnnOIFI.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/DXrgES6ajjo.mp4 b/videos-noise/beatboxing/DXrgES6ajjo.mp4
+deleted file mode 100644
+index fa46d95..0000000
+Binary files a/videos-noise/beatboxing/DXrgES6ajjo.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/FDq18iULERY.mp4 b/videos-noise/beatboxing/FDq18iULERY.mp4
+deleted file mode 100644
+index e14007f..0000000
+Binary files a/videos-noise/beatboxing/FDq18iULERY.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/FDq9jLeJdgg.mp4 b/videos-noise/beatboxing/FDq9jLeJdgg.mp4
+deleted file mode 100644
+index fe5d7a9..0000000
+Binary files a/videos-noise/beatboxing/FDq9jLeJdgg.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/IPQktJWcx0E.mp4 b/videos-noise/beatboxing/IPQktJWcx0E.mp4
+deleted file mode 100644
+index 991f0cb..0000000
+Binary files a/videos-noise/beatboxing/IPQktJWcx0E.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/InCjGNP6xno.mp4 b/videos-noise/beatboxing/InCjGNP6xno.mp4
+deleted file mode 100644
+index 23c0ba9..0000000
+Binary files a/videos-noise/beatboxing/InCjGNP6xno.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/InFfcFvIu-A.mp4 b/videos-noise/beatboxing/InFfcFvIu-A.mp4
+deleted file mode 100644
+index 64ff62e..0000000
+Binary files a/videos-noise/beatboxing/InFfcFvIu-A.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/Jkr-0lv_E0E.mp4 b/videos-noise/beatboxing/Jkr-0lv_E0E.mp4
+deleted file mode 100644
+index 5b722fd..0000000
+Binary files a/videos-noise/beatboxing/Jkr-0lv_E0E.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/LWvujnRQvXI.mp4 b/videos-noise/beatboxing/LWvujnRQvXI.mp4
+deleted file mode 100644
+index 3ed81b4..0000000
+Binary files a/videos-noise/beatboxing/LWvujnRQvXI.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/QafYheILhrk.mp4 b/videos-noise/beatboxing/QafYheILhrk.mp4
+deleted file mode 100644
+index 46f87cf..0000000
+Binary files a/videos-noise/beatboxing/QafYheILhrk.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/QbI72yTP668.mp4 b/videos-noise/beatboxing/QbI72yTP668.mp4
+deleted file mode 100644
+index 5ed7712..0000000
+Binary files a/videos-noise/beatboxing/QbI72yTP668.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/U-ObtNm56zg.mp4 b/videos-noise/beatboxing/U-ObtNm56zg.mp4
+deleted file mode 100644
+index 2f9eb11..0000000
+Binary files a/videos-noise/beatboxing/U-ObtNm56zg.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/XG6Yr7qkotA.mp4 b/videos-noise/beatboxing/XG6Yr7qkotA.mp4
+deleted file mode 100644
+index 15be9f2..0000000
+Binary files a/videos-noise/beatboxing/XG6Yr7qkotA.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/X_Z9v6vq35c.mp4 b/videos-noise/beatboxing/X_Z9v6vq35c.mp4
+deleted file mode 100644
+index 7a4d444..0000000
+Binary files a/videos-noise/beatboxing/X_Z9v6vq35c.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/Xw6zjPEOGHs.mp4 b/videos-noise/beatboxing/Xw6zjPEOGHs.mp4
+deleted file mode 100644
+index 5d82d96..0000000
+Binary files a/videos-noise/beatboxing/Xw6zjPEOGHs.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/XxrVl4OU2Kw.mp4 b/videos-noise/beatboxing/XxrVl4OU2Kw.mp4
+deleted file mode 100644
+index b70b636..0000000
+Binary files a/videos-noise/beatboxing/XxrVl4OU2Kw.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/YAUatIJY-Qg.mp4 b/videos-noise/beatboxing/YAUatIJY-Qg.mp4
+deleted file mode 100644
+index 9ef7053..0000000
+Binary files a/videos-noise/beatboxing/YAUatIJY-Qg.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/ZSjBVS_bdO4.mp4 b/videos-noise/beatboxing/ZSjBVS_bdO4.mp4
+deleted file mode 100644
+index aa153a5..0000000
+Binary files a/videos-noise/beatboxing/ZSjBVS_bdO4.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/Zm0jzuCtqwI.mp4 b/videos-noise/beatboxing/Zm0jzuCtqwI.mp4
+deleted file mode 100644
+index 2f7d616..0000000
+Binary files a/videos-noise/beatboxing/Zm0jzuCtqwI.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/ZmgpqCTjpLw.mp4 b/videos-noise/beatboxing/ZmgpqCTjpLw.mp4
+deleted file mode 100644
+index aa83486..0000000
+Binary files a/videos-noise/beatboxing/ZmgpqCTjpLw.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/bOPmb-thlu0.mp4 b/videos-noise/beatboxing/bOPmb-thlu0.mp4
+deleted file mode 100644
+index 1f94a5e..0000000
+Binary files a/videos-noise/beatboxing/bOPmb-thlu0.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/bOSKSwkdfoY.mp4 b/videos-noise/beatboxing/bOSKSwkdfoY.mp4
+deleted file mode 100644
+index c6d671d..0000000
+Binary files a/videos-noise/beatboxing/bOSKSwkdfoY.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/bq6khd8dHic.mp4 b/videos-noise/beatboxing/bq6khd8dHic.mp4
+deleted file mode 100644
+index 21ac6d0..0000000
+Binary files a/videos-noise/beatboxing/bq6khd8dHic.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/c6F3ucU4gn0.mp4 b/videos-noise/beatboxing/c6F3ucU4gn0.mp4
+deleted file mode 100644
+index 1a20d80..0000000
+Binary files a/videos-noise/beatboxing/c6F3ucU4gn0.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f133.mp4.part b/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f133.mp4.part
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f133.mp4.ytdl b/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f133.mp4.ytdl
+deleted file mode 100644
+index 515edac..0000000
+--- a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f133.mp4.ytdl
++++ /dev/null
+@@ -1 +0,0 @@
+-{"downloader": {"current_fragment": {"index": 0}}}
+\ No newline at end of file
+diff --git a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f135.mp4.part b/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f135.mp4.part
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f135.mp4.ytdl b/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f135.mp4.ytdl
+deleted file mode 100644
+index 515edac..0000000
+--- a/videos-noise/beatboxing/c6WRGuWdJ9Q_raw.f135.mp4.ytdl
++++ /dev/null
+@@ -1 +0,0 @@
+-{"downloader": {"current_fragment": {"index": 0}}}
+\ No newline at end of file
+diff --git a/videos-noise/beatboxing/joCLxc7cBwE.mp4 b/videos-noise/beatboxing/joCLxc7cBwE.mp4
+deleted file mode 100644
+index 14879ea..0000000
+Binary files a/videos-noise/beatboxing/joCLxc7cBwE.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/joE5yqOSC7U.mp4 b/videos-noise/beatboxing/joE5yqOSC7U.mp4
+deleted file mode 100644
+index 0161673..0000000
+Binary files a/videos-noise/beatboxing/joE5yqOSC7U.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/joLgAW6N1iA.mp4 b/videos-noise/beatboxing/joLgAW6N1iA.mp4
+deleted file mode 100644
+index 385fc50..0000000
+Binary files a/videos-noise/beatboxing/joLgAW6N1iA.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/mmSzwMNvSAE.mp4 b/videos-noise/beatboxing/mmSzwMNvSAE.mp4
+deleted file mode 100644
+index 196e628..0000000
+Binary files a/videos-noise/beatboxing/mmSzwMNvSAE.mp4 and /dev/null differ
+diff --git a/videos-noise/beatboxing/tBLyAM4a44w.mp4 b/videos-noise/beatboxing/tBLyAM4a44w.mp4
+deleted file mode 100644
+index 71457f0..0000000
+Binary files a/videos-noise/beatboxing/tBLyAM4a44w.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/By96UjfALNA.mp4 b/videos-noise/bee keeping/By96UjfALNA.mp4
+deleted file mode 100644
+index 1cdbbab..0000000
+Binary files a/videos-noise/bee keeping/By96UjfALNA.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/CRkgy266nVA.mp4 b/videos-noise/bee keeping/CRkgy266nVA.mp4
+deleted file mode 100644
+index 8365bdc..0000000
+Binary files a/videos-noise/bee keeping/CRkgy266nVA.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/Gm_OERc3lLE.mp4 b/videos-noise/bee keeping/Gm_OERc3lLE.mp4
+deleted file mode 100644
+index 7d49361..0000000
+Binary files a/videos-noise/bee keeping/Gm_OERc3lLE.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/NS4Xju7YiSc.mp4 b/videos-noise/bee keeping/NS4Xju7YiSc.mp4
+deleted file mode 100644
+index 63cfb37..0000000
+Binary files a/videos-noise/bee keeping/NS4Xju7YiSc.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/TCuicUK8Jb8.mp4 b/videos-noise/bee keeping/TCuicUK8Jb8.mp4
+deleted file mode 100644
+index 7c66f2b..0000000
+Binary files a/videos-noise/bee keeping/TCuicUK8Jb8.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/_jEYsDLpHwo.mp4 b/videos-noise/bee keeping/_jEYsDLpHwo.mp4
+deleted file mode 100644
+index 1c3d364..0000000
+Binary files a/videos-noise/bee keeping/_jEYsDLpHwo.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/ddfN8y7PVSw.mp4 b/videos-noise/bee keeping/ddfN8y7PVSw.mp4
+deleted file mode 100644
+index 42a0dfc..0000000
+Binary files a/videos-noise/bee keeping/ddfN8y7PVSw.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/j7EK4K5-PLU.mp4 b/videos-noise/bee keeping/j7EK4K5-PLU.mp4
+deleted file mode 100644
+index 47b3ca1..0000000
+Binary files a/videos-noise/bee keeping/j7EK4K5-PLU.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/rk7tB903XDU.mp4 b/videos-noise/bee keeping/rk7tB903XDU.mp4
+deleted file mode 100644
+index 4a72b1a..0000000
+Binary files a/videos-noise/bee keeping/rk7tB903XDU.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/rtCfnZfn_Bw.mp4 b/videos-noise/bee keeping/rtCfnZfn_Bw.mp4
+deleted file mode 100644
+index 3927387..0000000
+Binary files a/videos-noise/bee keeping/rtCfnZfn_Bw.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/wg3bjNafb-s.mp4 b/videos-noise/bee keeping/wg3bjNafb-s.mp4
+deleted file mode 100644
+index 5691903..0000000
+Binary files a/videos-noise/bee keeping/wg3bjNafb-s.mp4 and /dev/null differ
+diff --git a/videos-noise/bee keeping/zbkL1yR2tnQ.mp4 b/videos-noise/bee keeping/zbkL1yR2tnQ.mp4
+deleted file mode 100644
+index b8bf338..0000000
+Binary files a/videos-noise/bee keeping/zbkL1yR2tnQ.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/2KtM3HZWRgk.mp4 b/videos-noise/belly dancing/2KtM3HZWRgk.mp4
+deleted file mode 100644
+index 62fd863..0000000
+Binary files a/videos-noise/belly dancing/2KtM3HZWRgk.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/3QB3uS5fi4Y.mp4 b/videos-noise/belly dancing/3QB3uS5fi4Y.mp4
+deleted file mode 100644
+index ad521ec..0000000
+Binary files a/videos-noise/belly dancing/3QB3uS5fi4Y.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/4pK0q_Yo2lU.mp4 b/videos-noise/belly dancing/4pK0q_Yo2lU.mp4
+deleted file mode 100644
+index c86efc0..0000000
+Binary files a/videos-noise/belly dancing/4pK0q_Yo2lU.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/7g-9PqgEFp0.mp4 b/videos-noise/belly dancing/7g-9PqgEFp0.mp4
+deleted file mode 100644
+index d2d6714..0000000
+Binary files a/videos-noise/belly dancing/7g-9PqgEFp0.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/8Qx3_zuVuOY.mp4 b/videos-noise/belly dancing/8Qx3_zuVuOY.mp4
+deleted file mode 100644
+index ea5bd52..0000000
+Binary files a/videos-noise/belly dancing/8Qx3_zuVuOY.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/8laj4uicKwk.mp4 b/videos-noise/belly dancing/8laj4uicKwk.mp4
+deleted file mode 100644
+index 3abe376..0000000
+Binary files a/videos-noise/belly dancing/8laj4uicKwk.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/AVbdiD7D1r8.mp4 b/videos-noise/belly dancing/AVbdiD7D1r8.mp4
+deleted file mode 100644
+index 6b5856f..0000000
+Binary files a/videos-noise/belly dancing/AVbdiD7D1r8.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/FeHYncsl4pw.mp4 b/videos-noise/belly dancing/FeHYncsl4pw.mp4
+deleted file mode 100644
+index 2f6e545..0000000
+Binary files a/videos-noise/belly dancing/FeHYncsl4pw.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/I5i6wbqjOkc.mp4 b/videos-noise/belly dancing/I5i6wbqjOkc.mp4
+deleted file mode 100644
+index 9be6f9b..0000000
+Binary files a/videos-noise/belly dancing/I5i6wbqjOkc.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/M4LFe-TLFeY.mp4 b/videos-noise/belly dancing/M4LFe-TLFeY.mp4
+deleted file mode 100644
+index 5aac5ae..0000000
+Binary files a/videos-noise/belly dancing/M4LFe-TLFeY.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/MaCRVkSCcgc.mp4 b/videos-noise/belly dancing/MaCRVkSCcgc.mp4
+deleted file mode 100644
+index 77a2f66..0000000
+Binary files a/videos-noise/belly dancing/MaCRVkSCcgc.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/NbQuKUbyC4I.mp4 b/videos-noise/belly dancing/NbQuKUbyC4I.mp4
+deleted file mode 100644
+index ee39a0b..0000000
+Binary files a/videos-noise/belly dancing/NbQuKUbyC4I.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/PzakNhyFo00.mp4 b/videos-noise/belly dancing/PzakNhyFo00.mp4
+deleted file mode 100644
+index 8e0b9d6..0000000
+Binary files a/videos-noise/belly dancing/PzakNhyFo00.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/S_lliWBAUeQ.mp4 b/videos-noise/belly dancing/S_lliWBAUeQ.mp4
+deleted file mode 100644
+index 9327978..0000000
+Binary files a/videos-noise/belly dancing/S_lliWBAUeQ.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/S_mFdTSji6k.mp4 b/videos-noise/belly dancing/S_mFdTSji6k.mp4
+deleted file mode 100644
+index ebd9f46..0000000
+Binary files a/videos-noise/belly dancing/S_mFdTSji6k.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/SkB06xareqg.mp4 b/videos-noise/belly dancing/SkB06xareqg.mp4
+deleted file mode 100644
+index f8b8092..0000000
+Binary files a/videos-noise/belly dancing/SkB06xareqg.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/UDit398i0vM.mp4 b/videos-noise/belly dancing/UDit398i0vM.mp4
+deleted file mode 100644
+index 3fa2ef1..0000000
+Binary files a/videos-noise/belly dancing/UDit398i0vM.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/UpNvGpDvDiA.mp4 b/videos-noise/belly dancing/UpNvGpDvDiA.mp4
+deleted file mode 100644
+index f4c01c0..0000000
+Binary files a/videos-noise/belly dancing/UpNvGpDvDiA.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/UyRlwBGp-p8.mp4 b/videos-noise/belly dancing/UyRlwBGp-p8.mp4
+deleted file mode 100644
+index 6382500..0000000
+Binary files a/videos-noise/belly dancing/UyRlwBGp-p8.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/Xcj-fgN0ZLE.mp4 b/videos-noise/belly dancing/Xcj-fgN0ZLE.mp4
+deleted file mode 100644
+index c2a1f34..0000000
+Binary files a/videos-noise/belly dancing/Xcj-fgN0ZLE.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/XyVFtFuNQGo.mp4 b/videos-noise/belly dancing/XyVFtFuNQGo.mp4
+deleted file mode 100644
+index 83a7f9d..0000000
+Binary files a/videos-noise/belly dancing/XyVFtFuNQGo.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/ZBj3guTpfLU.mp4 b/videos-noise/belly dancing/ZBj3guTpfLU.mp4
+deleted file mode 100644
+index 8a8acb5..0000000
+Binary files a/videos-noise/belly dancing/ZBj3guTpfLU.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/ZHrD0K0ZhUI.mp4 b/videos-noise/belly dancing/ZHrD0K0ZhUI.mp4
+deleted file mode 100644
+index 9ad0b6e..0000000
+Binary files a/videos-noise/belly dancing/ZHrD0K0ZhUI.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/c35uT8EvBq4.mp4 b/videos-noise/belly dancing/c35uT8EvBq4.mp4
+deleted file mode 100644
+index 9f09ecc..0000000
+Binary files a/videos-noise/belly dancing/c35uT8EvBq4.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/cNvTm72aGcM.mp4 b/videos-noise/belly dancing/cNvTm72aGcM.mp4
+deleted file mode 100644
+index 21e0ae9..0000000
+Binary files a/videos-noise/belly dancing/cNvTm72aGcM.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/cro_EItX2Ck.mp4 b/videos-noise/belly dancing/cro_EItX2Ck.mp4
+deleted file mode 100644
+index f56ae9a..0000000
+Binary files a/videos-noise/belly dancing/cro_EItX2Ck.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/dMKCYXzgHrE.mp4 b/videos-noise/belly dancing/dMKCYXzgHrE.mp4
+deleted file mode 100644
+index abc8e90..0000000
+Binary files a/videos-noise/belly dancing/dMKCYXzgHrE.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/dU7W4hlzNnI.mp4 b/videos-noise/belly dancing/dU7W4hlzNnI.mp4
+deleted file mode 100644
+index a3e1968..0000000
+Binary files a/videos-noise/belly dancing/dU7W4hlzNnI.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/dfArQcPq_mo.mp4 b/videos-noise/belly dancing/dfArQcPq_mo.mp4
+deleted file mode 100644
+index c79e8d0..0000000
+Binary files a/videos-noise/belly dancing/dfArQcPq_mo.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/ikASwCLYWC4.mp4 b/videos-noise/belly dancing/ikASwCLYWC4.mp4
+deleted file mode 100644
+index 20e2f40..0000000
+Binary files a/videos-noise/belly dancing/ikASwCLYWC4.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/r7dgawc9cEE.mp4 b/videos-noise/belly dancing/r7dgawc9cEE.mp4
+deleted file mode 100644
+index aa1e50e..0000000
+Binary files a/videos-noise/belly dancing/r7dgawc9cEE.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/rw9gD1LTv5w.mp4 b/videos-noise/belly dancing/rw9gD1LTv5w.mp4
+deleted file mode 100644
+index c9ffdbb..0000000
+Binary files a/videos-noise/belly dancing/rw9gD1LTv5w.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/sDfbe6_hjh0.mp4 b/videos-noise/belly dancing/sDfbe6_hjh0.mp4
+deleted file mode 100644
+index 39abae1..0000000
+Binary files a/videos-noise/belly dancing/sDfbe6_hjh0.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/sDoyNq2VhXo.mp4 b/videos-noise/belly dancing/sDoyNq2VhXo.mp4
+deleted file mode 100644
+index 8e4f29f..0000000
+Binary files a/videos-noise/belly dancing/sDoyNq2VhXo.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/v4T_KTgTsec.mp4 b/videos-noise/belly dancing/v4T_KTgTsec.mp4
+deleted file mode 100644
+index e7c1504..0000000
+Binary files a/videos-noise/belly dancing/v4T_KTgTsec.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/vL-fglxTDUU.mp4 b/videos-noise/belly dancing/vL-fglxTDUU.mp4
+deleted file mode 100644
+index f1b47e1..0000000
+Binary files a/videos-noise/belly dancing/vL-fglxTDUU.mp4 and /dev/null differ
+diff --git a/videos-noise/belly dancing/z7ovIABNVs4.mp4 b/videos-noise/belly dancing/z7ovIABNVs4.mp4
+deleted file mode 100644
+index 1cf0b01..0000000
+Binary files a/videos-noise/belly dancing/z7ovIABNVs4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/-lY0GixYJZo.mp4 b/videos-noise/bench pressing/-lY0GixYJZo.mp4
+deleted file mode 100644
+index deebf13..0000000
+Binary files a/videos-noise/bench pressing/-lY0GixYJZo.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/13Y0Ja2EfJI.mp4 b/videos-noise/bench pressing/13Y0Ja2EfJI.mp4
+deleted file mode 100644
+index dc7b186..0000000
+Binary files a/videos-noise/bench pressing/13Y0Ja2EfJI.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/2qx5RzGoER4.mp4 b/videos-noise/bench pressing/2qx5RzGoER4.mp4
+deleted file mode 100644
+index f22b8c0..0000000
+Binary files a/videos-noise/bench pressing/2qx5RzGoER4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/4QilZaMYT_s.mp4 b/videos-noise/bench pressing/4QilZaMYT_s.mp4
+deleted file mode 100644
+index 8b8ced0..0000000
+Binary files a/videos-noise/bench pressing/4QilZaMYT_s.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/6KGWfMMrEpA.mp4 b/videos-noise/bench pressing/6KGWfMMrEpA.mp4
+deleted file mode 100644
+index 0d9e180..0000000
+Binary files a/videos-noise/bench pressing/6KGWfMMrEpA.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/8gYeiygqT4o.mp4 b/videos-noise/bench pressing/8gYeiygqT4o.mp4
+deleted file mode 100644
+index 3b06231..0000000
+Binary files a/videos-noise/bench pressing/8gYeiygqT4o.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/8nbEQY9UxMk.mp4 b/videos-noise/bench pressing/8nbEQY9UxMk.mp4
+deleted file mode 100644
+index 1fa6908..0000000
+Binary files a/videos-noise/bench pressing/8nbEQY9UxMk.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/AhyoWqf88AA.mp4 b/videos-noise/bench pressing/AhyoWqf88AA.mp4
+deleted file mode 100644
+index 420ba8e..0000000
+Binary files a/videos-noise/bench pressing/AhyoWqf88AA.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/BoTOg4i1iSs.mp4 b/videos-noise/bench pressing/BoTOg4i1iSs.mp4
+deleted file mode 100644
+index 80fb1d4..0000000
+Binary files a/videos-noise/bench pressing/BoTOg4i1iSs.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/CY0GKejQRVI.mp4 b/videos-noise/bench pressing/CY0GKejQRVI.mp4
+deleted file mode 100644
+index 57f6574..0000000
+Binary files a/videos-noise/bench pressing/CY0GKejQRVI.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/DiiAjEcHLg4.mp4 b/videos-noise/bench pressing/DiiAjEcHLg4.mp4
+deleted file mode 100644
+index 2837bac..0000000
+Binary files a/videos-noise/bench pressing/DiiAjEcHLg4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/Ee2zMc1Zxl4.mp4 b/videos-noise/bench pressing/Ee2zMc1Zxl4.mp4
+deleted file mode 100644
+index 8ae79fd..0000000
+Binary files a/videos-noise/bench pressing/Ee2zMc1Zxl4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/FyYRvnHdOgU.mp4 b/videos-noise/bench pressing/FyYRvnHdOgU.mp4
+deleted file mode 100644
+index 40728b7..0000000
+Binary files a/videos-noise/bench pressing/FyYRvnHdOgU.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/Gt9ZZttmR3w.mp4 b/videos-noise/bench pressing/Gt9ZZttmR3w.mp4
+deleted file mode 100644
+index 604a236..0000000
+Binary files a/videos-noise/bench pressing/Gt9ZZttmR3w.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/HojuGCOlt1Q.mp4 b/videos-noise/bench pressing/HojuGCOlt1Q.mp4
+deleted file mode 100644
+index 2ee2c8e..0000000
+Binary files a/videos-noise/bench pressing/HojuGCOlt1Q.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/IdtGeXGR6a8.mp4 b/videos-noise/bench pressing/IdtGeXGR6a8.mp4
+deleted file mode 100644
+index b0a8fc4..0000000
+Binary files a/videos-noise/bench pressing/IdtGeXGR6a8.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/KsOw05oRYyg.mp4 b/videos-noise/bench pressing/KsOw05oRYyg.mp4
+deleted file mode 100644
+index d536e3f..0000000
+Binary files a/videos-noise/bench pressing/KsOw05oRYyg.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/LA_IBccMtCM.mp4 b/videos-noise/bench pressing/LA_IBccMtCM.mp4
+deleted file mode 100644
+index 7a02574..0000000
+Binary files a/videos-noise/bench pressing/LA_IBccMtCM.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/P2hB8qC6a84.mp4 b/videos-noise/bench pressing/P2hB8qC6a84.mp4
+deleted file mode 100644
+index 5025b6b..0000000
+Binary files a/videos-noise/bench pressing/P2hB8qC6a84.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/QnJV5KuBb-A.mp4 b/videos-noise/bench pressing/QnJV5KuBb-A.mp4
+deleted file mode 100644
+index 605ff54..0000000
+Binary files a/videos-noise/bench pressing/QnJV5KuBb-A.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/RlZRzdhmF_E.mp4 b/videos-noise/bench pressing/RlZRzdhmF_E.mp4
+deleted file mode 100644
+index b13576c..0000000
+Binary files a/videos-noise/bench pressing/RlZRzdhmF_E.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/UbKDeT5N5h4.mp4 b/videos-noise/bench pressing/UbKDeT5N5h4.mp4
+deleted file mode 100644
+index 68e5f92..0000000
+Binary files a/videos-noise/bench pressing/UbKDeT5N5h4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/UoNIkXQ3xpw.mp4 b/videos-noise/bench pressing/UoNIkXQ3xpw.mp4
+deleted file mode 100644
+index 22724ac..0000000
+Binary files a/videos-noise/bench pressing/UoNIkXQ3xpw.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/Uy7TMzIceYs.mp4 b/videos-noise/bench pressing/Uy7TMzIceYs.mp4
+deleted file mode 100644
+index f94421c..0000000
+Binary files a/videos-noise/bench pressing/Uy7TMzIceYs.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/WFiyLspJlTo.mp4 b/videos-noise/bench pressing/WFiyLspJlTo.mp4
+deleted file mode 100644
+index c46b12f..0000000
+Binary files a/videos-noise/bench pressing/WFiyLspJlTo.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/X6Ma61_cn24.mp4 b/videos-noise/bench pressing/X6Ma61_cn24.mp4
+deleted file mode 100644
+index 74e0089..0000000
+Binary files a/videos-noise/bench pressing/X6Ma61_cn24.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/Xelxozo6MUU.mp4 b/videos-noise/bench pressing/Xelxozo6MUU.mp4
+deleted file mode 100644
+index 47896d1..0000000
+Binary files a/videos-noise/bench pressing/Xelxozo6MUU.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/XenRdjBTfUs.mp4 b/videos-noise/bench pressing/XenRdjBTfUs.mp4
+deleted file mode 100644
+index 35fd041..0000000
+Binary files a/videos-noise/bench pressing/XenRdjBTfUs.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/ZsD1_bm6lb8.mp4 b/videos-noise/bench pressing/ZsD1_bm6lb8.mp4
+deleted file mode 100644
+index 1073bd1..0000000
+Binary files a/videos-noise/bench pressing/ZsD1_bm6lb8.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/b6iPWk8JxP4.mp4 b/videos-noise/bench pressing/b6iPWk8JxP4.mp4
+deleted file mode 100644
+index 057a50b..0000000
+Binary files a/videos-noise/bench pressing/b6iPWk8JxP4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/d_H4yEti67g.mp4 b/videos-noise/bench pressing/d_H4yEti67g.mp4
+deleted file mode 100644
+index 3988b44..0000000
+Binary files a/videos-noise/bench pressing/d_H4yEti67g.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/fCXpnU2_rno.mp4 b/videos-noise/bench pressing/fCXpnU2_rno.mp4
+deleted file mode 100644
+index 098c56c..0000000
+Binary files a/videos-noise/bench pressing/fCXpnU2_rno.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/fjImGRI0XnM.mp4 b/videos-noise/bench pressing/fjImGRI0XnM.mp4
+deleted file mode 100644
+index cbb594d..0000000
+Binary files a/videos-noise/bench pressing/fjImGRI0XnM.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/gWszV_R2qsk.mp4 b/videos-noise/bench pressing/gWszV_R2qsk.mp4
+deleted file mode 100644
+index c7cb882..0000000
+Binary files a/videos-noise/bench pressing/gWszV_R2qsk.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/jAxlicigO5Y.mp4 b/videos-noise/bench pressing/jAxlicigO5Y.mp4
+deleted file mode 100644
+index 00ad014..0000000
+Binary files a/videos-noise/bench pressing/jAxlicigO5Y.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/jxz6cpktV6A.mp4 b/videos-noise/bench pressing/jxz6cpktV6A.mp4
+deleted file mode 100644
+index 163d013..0000000
+Binary files a/videos-noise/bench pressing/jxz6cpktV6A.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/mW1oYPdTYg8.mp4 b/videos-noise/bench pressing/mW1oYPdTYg8.mp4
+deleted file mode 100644
+index 92943c7..0000000
+Binary files a/videos-noise/bench pressing/mW1oYPdTYg8.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/oI_mMj-AEq4.mp4 b/videos-noise/bench pressing/oI_mMj-AEq4.mp4
+deleted file mode 100644
+index 8f83a2a..0000000
+Binary files a/videos-noise/bench pressing/oI_mMj-AEq4.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/oeDMVynjm_8.mp4 b/videos-noise/bench pressing/oeDMVynjm_8.mp4
+deleted file mode 100644
+index 81a91fc..0000000
+Binary files a/videos-noise/bench pressing/oeDMVynjm_8.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/q82M1_lpJ7U.mp4 b/videos-noise/bench pressing/q82M1_lpJ7U.mp4
+deleted file mode 100644
+index 5b365ae..0000000
+Binary files a/videos-noise/bench pressing/q82M1_lpJ7U.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/sclV1zG72qA.mp4 b/videos-noise/bench pressing/sclV1zG72qA.mp4
+deleted file mode 100644
+index bc9aedd..0000000
+Binary files a/videos-noise/bench pressing/sclV1zG72qA.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/sd4DxaP5yuQ.mp4 b/videos-noise/bench pressing/sd4DxaP5yuQ.mp4
+deleted file mode 100644
+index af81daa..0000000
+Binary files a/videos-noise/bench pressing/sd4DxaP5yuQ.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/sgPDFliqQUo.mp4 b/videos-noise/bench pressing/sgPDFliqQUo.mp4
+deleted file mode 100644
+index 49888aa..0000000
+Binary files a/videos-noise/bench pressing/sgPDFliqQUo.mp4 and /dev/null differ
+diff --git a/videos-noise/bench pressing/x5TQFXiaRxg.mp4 b/videos-noise/bench pressing/x5TQFXiaRxg.mp4
+deleted file mode 100644
+index 23a1454..0000000
+Binary files a/videos-noise/bench pressing/x5TQFXiaRxg.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/1omMPfRukGM.mp4 b/videos-noise/bending back/1omMPfRukGM.mp4
+deleted file mode 100644
+index 75b9b21..0000000
+Binary files a/videos-noise/bending back/1omMPfRukGM.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/5ZAGxs_bHeA.mp4 b/videos-noise/bending back/5ZAGxs_bHeA.mp4
+deleted file mode 100644
+index 1077c4a..0000000
+Binary files a/videos-noise/bending back/5ZAGxs_bHeA.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/FKUsHWv8rBY.mp4 b/videos-noise/bending back/FKUsHWv8rBY.mp4
+deleted file mode 100644
+index 1ccffc5..0000000
+Binary files a/videos-noise/bending back/FKUsHWv8rBY.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/GFdaInwB5K0.mp4 b/videos-noise/bending back/GFdaInwB5K0.mp4
+deleted file mode 100644
+index a94215e..0000000
+Binary files a/videos-noise/bending back/GFdaInwB5K0.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/GPm-cW5SSKo.mp4 b/videos-noise/bending back/GPm-cW5SSKo.mp4
+deleted file mode 100644
+index 21a2d37..0000000
+Binary files a/videos-noise/bending back/GPm-cW5SSKo.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/HG4XY8g_u4s.mp4 b/videos-noise/bending back/HG4XY8g_u4s.mp4
+deleted file mode 100644
+index a657e14..0000000
+Binary files a/videos-noise/bending back/HG4XY8g_u4s.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/JUI6H1185G4.mp4 b/videos-noise/bending back/JUI6H1185G4.mp4
+deleted file mode 100644
+index b8cfef8..0000000
+Binary files a/videos-noise/bending back/JUI6H1185G4.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/MPQnKTgq-wA.mp4 b/videos-noise/bending back/MPQnKTgq-wA.mp4
+deleted file mode 100644
+index 4cd02d9..0000000
+Binary files a/videos-noise/bending back/MPQnKTgq-wA.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/PKkLLMPTMCg.mp4 b/videos-noise/bending back/PKkLLMPTMCg.mp4
+deleted file mode 100644
+index 8682d06..0000000
+Binary files a/videos-noise/bending back/PKkLLMPTMCg.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/XXTrMiV8Uzw.mp4 b/videos-noise/bending back/XXTrMiV8Uzw.mp4
+deleted file mode 100644
+index 11dbd47..0000000
+Binary files a/videos-noise/bending back/XXTrMiV8Uzw.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/_hAsfdBEFyk.mp4 b/videos-noise/bending back/_hAsfdBEFyk.mp4
+deleted file mode 100644
+index 6114907..0000000
+Binary files a/videos-noise/bending back/_hAsfdBEFyk.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/bH3XFUinrrw.mp4 b/videos-noise/bending back/bH3XFUinrrw.mp4
+deleted file mode 100644
+index e14827d..0000000
+Binary files a/videos-noise/bending back/bH3XFUinrrw.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/fkEDXeSGYgU.mp4 b/videos-noise/bending back/fkEDXeSGYgU.mp4
+deleted file mode 100644
+index c969068..0000000
+Binary files a/videos-noise/bending back/fkEDXeSGYgU.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/iSnDJ0UG6uw.mp4 b/videos-noise/bending back/iSnDJ0UG6uw.mp4
+deleted file mode 100644
+index 327db57..0000000
+Binary files a/videos-noise/bending back/iSnDJ0UG6uw.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/jspaKVOL5C8.mp4 b/videos-noise/bending back/jspaKVOL5C8.mp4
+deleted file mode 100644
+index 73342ba..0000000
+Binary files a/videos-noise/bending back/jspaKVOL5C8.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/m8gKbwPUiXQ.mp4 b/videos-noise/bending back/m8gKbwPUiXQ.mp4
+deleted file mode 100644
+index 9ef6b4f..0000000
+Binary files a/videos-noise/bending back/m8gKbwPUiXQ.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/pFLTzxMDoQg.mp4 b/videos-noise/bending back/pFLTzxMDoQg.mp4
+deleted file mode 100644
+index e41ec80..0000000
+Binary files a/videos-noise/bending back/pFLTzxMDoQg.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/vHdqezJKhKs.mp4 b/videos-noise/bending back/vHdqezJKhKs.mp4
+deleted file mode 100644
+index 95f8f5c..0000000
+Binary files a/videos-noise/bending back/vHdqezJKhKs.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/xdVljCOb3Wk.mp4 b/videos-noise/bending back/xdVljCOb3Wk.mp4
+deleted file mode 100644
+index 1a7b276..0000000
+Binary files a/videos-noise/bending back/xdVljCOb3Wk.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/y_vDV2XQeN4.mp4 b/videos-noise/bending back/y_vDV2XQeN4.mp4
+deleted file mode 100644
+index bd09020..0000000
+Binary files a/videos-noise/bending back/y_vDV2XQeN4.mp4 and /dev/null differ
+diff --git a/videos-noise/bending back/zupxTCtYyto.mp4 b/videos-noise/bending back/zupxTCtYyto.mp4
+deleted file mode 100644
+index 7c518d9..0000000
+Binary files a/videos-noise/bending back/zupxTCtYyto.mp4 and /dev/null differ
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/code/cleanrl/ppo_atari.py b/wandb/run-20251206_141845-4ztow9j4/files/code/cleanrl/ppo_atari.py
+deleted file mode 100644
+index 7b8cbcd..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/code/cleanrl/ppo_atari.py
++++ /dev/null
+@@ -1,344 +0,0 @@
+-# docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_ataripy
+-import os
+-import random
+-import time
+-from dataclasses import dataclass
+-
+-import gymnasium as gym
+-import numpy as np
+-import torch
+-import torch.nn as nn
+-import torch.optim as optim
+-import tyro
+-from torch.distributions.categorical import Categorical
+-from torch.utils.tensorboard import SummaryWriter
+-
+-from cleanrl_utils.atari_wrappers import (  # isort:skip
+-    ClipRewardEnv,
+-    EpisodicLifeEnv,
+-    FireResetEnv,
+-    MaxAndSkipEnv,
+-    NoopResetEnv,
+-)
+-
+-
+-@dataclass
+-class Args:
+-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+-    """the name of this experiment"""
+-    seed: int = 1
+-    """seed of the experiment"""
+-    torch_deterministic: bool = True
+-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
+-    cuda: bool = True
+-    """if toggled, cuda will be enabled by default"""
+-    track: bool = True
+-    """if toggled, this experiment will be tracked with Weights and Biases"""
+-    wandb_project_name: str = "cleanrl_ppo_atari"
+-    """the wandb's project name"""
+-    wandb_entity: str = None
+-    """the entity (team) of wandb's project"""
+-    capture_video: bool = True
+-    """whether to capture videos of the agent performances (check out `videos` folder)"""
+-
+-    # Algorithm specific arguments
+-    env_id: str = "BreakoutNoFrameskip-v4"
+-    """the id of the environment"""
+-    total_timesteps: int = 10000000
+-    """total timesteps of the experiments"""
+-    learning_rate: float = 2.5e-4
+-    """the learning rate of the optimizer"""
+-    num_envs: int = 8
+-    """the number of parallel game environments"""
+-    num_steps: int = 128
+-    """the number of steps to run in each environment per policy rollout"""
+-    anneal_lr: bool = True
+-    """Toggle learning rate annealing for policy and value networks"""
+-    gamma: float = 0.99
+-    """the discount factor gamma"""
+-    gae_lambda: float = 0.95
+-    """the lambda for the general advantage estimation"""
+-    num_minibatches: int = 4
+-    """the number of mini-batches"""
+-    update_epochs: int = 4
+-    """the K epochs to update the policy"""
+-    norm_adv: bool = True
+-    """Toggles advantages normalization"""
+-    clip_coef: float = 0.1
+-    """the surrogate clipping coefficient"""
+-    clip_vloss: bool = True
+-    """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
+-    ent_coef: float = 0.01
+-    """coefficient of the entropy"""
+-    vf_coef: float = 0.5
+-    """coefficient of the value function"""
+-    max_grad_norm: float = 0.5
+-    """the maximum norm for the gradient clipping"""
+-    target_kl: float = None
+-    """the target KL divergence threshold"""
+-
+-    # to be filled in runtime
+-    batch_size: int = 0
+-    """the batch size (computed in runtime)"""
+-    minibatch_size: int = 0
+-    """the mini-batch size (computed in runtime)"""
+-    num_iterations: int = 0
+-    """the number of iterations (computed in runtime)"""
+-
+-
+-def make_env(env_id, idx, capture_video, run_name):
+-    def thunk():
+-        if capture_video and idx == 0:
+-            env = gym.make(env_id, render_mode="rgb_array")
+-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+-        else:
+-            env = gym.make(env_id)
+-        env = gym.wrappers.RecordEpisodeStatistics(env)
+-        env = NoopResetEnv(env, noop_max=30)
+-        env = MaxAndSkipEnv(env, skip=4)
+-        env = EpisodicLifeEnv(env)
+-        if "FIRE" in env.unwrapped.get_action_meanings():
+-            env = FireResetEnv(env)
+-        env = ClipRewardEnv(env)
+-        env = gym.wrappers.ResizeObservation(env, (84, 84))
+-        env = gym.wrappers.GrayScaleObservation(env)
+-        env = gym.wrappers.FrameStack(env, 4)
+-        return env
+-
+-    return thunk
+-
+-
+-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+-    torch.nn.init.orthogonal_(layer.weight, std)
+-    torch.nn.init.constant_(layer.bias, bias_const)
+-    return layer
+-
+-
+-class Agent(nn.Module):
+-    def __init__(self, envs):
+-        super().__init__()
+-        self.network = nn.Sequential(
+-            layer_init(nn.Conv2d(4, 32, 8, stride=4)),
+-            nn.ReLU(),
+-            layer_init(nn.Conv2d(32, 64, 4, stride=2)),
+-            nn.ReLU(),
+-            layer_init(nn.Conv2d(64, 64, 3, stride=1)),
+-            nn.ReLU(),
+-            nn.Flatten(),
+-            layer_init(nn.Linear(64 * 7 * 7, 512)),
+-            nn.ReLU(),
+-        )
+-        self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
+-        self.critic = layer_init(nn.Linear(512, 1), std=1)
+-
+-    def get_value(self, x):
+-        return self.critic(self.network(x / 255.0))
+-
+-    def get_action_and_value(self, x, action=None):
+-        hidden = self.network(x / 255.0)
+-        logits = self.actor(hidden)
+-        probs = Categorical(logits=logits)
+-        if action is None:
+-            action = probs.sample()
+-        return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
+-
+-
+-if __name__ == "__main__":
+-    args = tyro.cli(Args)
+-    args.batch_size = int(args.num_envs * args.num_steps)
+-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
+-    args.num_iterations = args.total_timesteps // args.batch_size
+-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+-    if args.track:
+-        import wandb
+-
+-        wandb.init(
+-            project=args.wandb_project_name,
+-            entity=args.wandb_entity,
+-            sync_tensorboard=True,
+-            config=vars(args),
+-            name=run_name,
+-            monitor_gym=True,
+-            save_code=True,
+-        )
+-    writer = SummaryWriter(f"runs/{run_name}")
+-    writer.add_text(
+-        "hyperparameters",
+-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+-    )
+-
+-    # TRY NOT TO MODIFY: seeding
+-    random.seed(args.seed)
+-    np.random.seed(args.seed)
+-    torch.manual_seed(args.seed)
+-    torch.backends.cudnn.deterministic = args.torch_deterministic
+-
+-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+-
+-    # env setup
+-    envs = gym.vector.SyncVectorEnv(
+-        [make_env(args.env_id, i, args.capture_video, run_name) for i in range(args.num_envs)],
+-    )
+-    assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
+-
+-    agent = Agent(envs).to(device)
+-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+-
+-    # ALGO Logic: Storage setup
+-    obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
+-    actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
+-    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
+-    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
+-    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
+-    values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+-
+-    # TRY NOT TO MODIFY: start the game
+-    global_step = 0
+-    start_time = time.time()
+-    next_obs, _ = envs.reset(seed=args.seed)
+-    next_obs = torch.Tensor(next_obs).to(device)
+-    next_done = torch.zeros(args.num_envs).to(device)
+-
+-    for iteration in range(1, args.num_iterations + 1):
+-        # Annealing the rate if instructed to do so.
+-        if args.anneal_lr:
+-            frac = 1.0 - (iteration - 1.0) / args.num_iterations
+-            lrnow = frac * args.learning_rate
+-            optimizer.param_groups[0]["lr"] = lrnow
+-
+-        for step in range(0, args.num_steps):
+-            global_step += args.num_envs
+-            obs[step] = next_obs
+-            dones[step] = next_done
+-
+-            # ALGO LOGIC: action logic
+-            with torch.no_grad():
+-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+-                values[step] = value.flatten()
+-            actions[step] = action
+-            logprobs[step] = logprob
+-
+-            # TRY NOT TO MODIFY: execute the game and log data.
+-            next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())
+-            next_done = np.logical_or(terminations, truncations)
+-            rewards[step] = torch.tensor(reward).to(device).view(-1)
+-            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
+-
+-            if "final_info" in infos:
+-                for info in infos["final_info"]:
+-                    if info and "episode" in info:
+-                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+-                        writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+-                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+-
+-        # bootstrap value if not done
+-        with torch.no_grad():
+-            next_value = agent.get_value(next_obs).reshape(1, -1)
+-            advantages = torch.zeros_like(rewards).to(device)
+-            lastgaelam = 0
+-            for t in reversed(range(args.num_steps)):
+-                if t == args.num_steps - 1:
+-                    nextnonterminal = 1.0 - next_done
+-                    nextvalues = next_value
+-                else:
+-                    nextnonterminal = 1.0 - dones[t + 1]
+-                    nextvalues = values[t + 1]
+-                delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
+-                advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+-            returns = advantages + values
+-
+-        # flatten the batch
+-        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
+-        b_logprobs = logprobs.reshape(-1)
+-        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+-        b_advantages = advantages.reshape(-1)
+-        b_returns = returns.reshape(-1)
+-        b_values = values.reshape(-1)
+-
+-        # Optimizing the policy and value network
+-        b_inds = np.arange(args.batch_size)
+-        clipfracs = []
+-        for epoch in range(args.update_epochs):
+-            np.random.shuffle(b_inds)
+-            for start in range(0, args.batch_size, args.minibatch_size):
+-                end = start + args.minibatch_size
+-                mb_inds = b_inds[start:end]
+-
+-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])
+-                logratio = newlogprob - b_logprobs[mb_inds]
+-                ratio = logratio.exp()
+-
+-                with torch.no_grad():
+-                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
+-                    old_approx_kl = (-logratio).mean()
+-                    approx_kl = ((ratio - 1) - logratio).mean()
+-                    clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
+-
+-                mb_advantages = b_advantages[mb_inds]
+-                if args.norm_adv:
+-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
+-
+-                # Policy loss
+-                pg_loss1 = -mb_advantages * ratio
+-                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
+-                pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+-
+-                # Value loss
+-                newvalue = newvalue.view(-1)
+-                if args.clip_vloss:
+-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+-                    v_clipped = b_values[mb_inds] + torch.clamp(
+-                        newvalue - b_values[mb_inds],
+-                        -args.clip_coef,
+-                        args.clip_coef,
+-                    )
+-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+-                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+-                    v_loss = 0.5 * v_loss_max.mean()
+-                else:
+-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+-
+-                entropy_loss = entropy.mean()
+-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+-
+-                optimizer.zero_grad()
+-                loss.backward()
+-                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+-                optimizer.step()
+-
+-            if args.target_kl is not None and approx_kl > args.target_kl:
+-                break
+-
+-        y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+-        var_y = np.var(y_true)
+-        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+-
+-        # TRY NOT TO MODIFY: record rewards for plotting purposes
+-        writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+-        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+-        writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+-        writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
+-        writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+-        writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
+-        writer.add_scalar("losses/explained_variance", explained_var, global_step)
+-        print("SPS:", int(global_step / (time.time() - start_time)))
+-        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+-
+-    # --- NEW: SAVE MODEL BLOCK ---
+-    save_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+-    # Ensure directory exists (usually done by SummaryWriter, but purely for safety)
+-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+-    
+-    torch.save(agent.state_dict(), save_path)
+-    print(f"Model saved to {save_path}")
+-
+-    if args.track:
+-        import wandb
+-        artifact = wandb.Artifact(f"model-{args.env_id}", type="model")
+-        artifact.add_file(save_path)
+-        wandb.log_artifact(artifact)
+-    # -----------------------------
+-
+-    envs.close()
+-    writer.close()
+\ No newline at end of file
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/conda-environment.yaml b/wandb/run-20251206_141845-4ztow9j4/files/conda-environment.yaml
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/config.yaml b/wandb/run-20251206_141845-4ztow9j4/files/config.yaml
+deleted file mode 100644
+index 04ffabe..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/config.yaml
++++ /dev/null
+@@ -1,113 +0,0 @@
+-wandb_version: 1
+-
+-_wandb:
+-  desc: null
+-  value:
+-    cli_version: 0.13.11
+-    code_path: code/cleanrl/ppo_atari.py
+-    framework: torch
+-    is_jupyter_run: false
+-    is_kaggle_kernel: false
+-    python_version: 3.10.0
+-    start_time: 1765048725.052283
+-    t:
+-      1:
+-      - 1
+-      - 55
+-      2:
+-      - 1
+-      - 55
+-      3:
+-      - 13
+-      - 16
+-      - 23
+-      - 35
+-      4: 3.10.0
+-      5: 0.13.11
+-      8:
+-      - 3
+-      - 5
+-anneal_lr:
+-  desc: null
+-  value: true
+-batch_size:
+-  desc: null
+-  value: 1024
+-capture_video:
+-  desc: null
+-  value: true
+-clip_coef:
+-  desc: null
+-  value: 0.1
+-clip_vloss:
+-  desc: null
+-  value: true
+-cuda:
+-  desc: null
+-  value: true
+-ent_coef:
+-  desc: null
+-  value: 0.01
+-env_id:
+-  desc: null
+-  value: BreakoutNoFrameskip-v4
+-exp_name:
+-  desc: null
+-  value: ppo_atari
+-gae_lambda:
+-  desc: null
+-  value: 0.95
+-gamma:
+-  desc: null
+-  value: 0.99
+-learning_rate:
+-  desc: null
+-  value: 0.00025
+-max_grad_norm:
+-  desc: null
+-  value: 0.5
+-minibatch_size:
+-  desc: null
+-  value: 256
+-norm_adv:
+-  desc: null
+-  value: true
+-num_envs:
+-  desc: null
+-  value: 8
+-num_iterations:
+-  desc: null
+-  value: 9765
+-num_minibatches:
+-  desc: null
+-  value: 4
+-num_steps:
+-  desc: null
+-  value: 128
+-seed:
+-  desc: null
+-  value: 1
+-target_kl:
+-  desc: null
+-  value: null
+-torch_deterministic:
+-  desc: null
+-  value: true
+-total_timesteps:
+-  desc: null
+-  value: 10000000
+-track:
+-  desc: null
+-  value: true
+-update_epochs:
+-  desc: null
+-  value: 4
+-vf_coef:
+-  desc: null
+-  value: 0.5
+-wandb_entity:
+-  desc: null
+-  value: null
+-wandb_project_name:
+-  desc: null
+-  value: cleanrl_ppo_atari
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/diff.patch b/wandb/run-20251206_141845-4ztow9j4/files/diff.patch
+deleted file mode 100644
+index b717a6e..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/diff.patch
++++ /dev/null
+@@ -1,109 +0,0 @@
+-diff --git a/cleanrl/dqn_atari.py b/cleanrl/dqn_atari.py
+-index 1561405..efffd7c 100644
+---- a/cleanrl/dqn_atari.py
+-+++ b/cleanrl/dqn_atari.py
+-@@ -39,7 +39,7 @@ class Args:
+-     """the wandb's project name"""
+-     wandb_entity: str = None
+-     """the entity (team) of wandb's project"""
+--    capture_video: bool = False
+-+    capture_video: bool = True
+-     """whether to capture videos of the agent performances (check out `videos` folder)"""
+-     save_model: bool = False
+-     """whether to save model into the `runs/{run_name}` folder"""
+-@@ -51,9 +51,9 @@ class Args:
+-     # Algorithm specific arguments
+-     env_id: str = "BreakoutNoFrameskip-v4"
+-     """the id of the environment"""
+--    total_timesteps: int = 800000
+-+    total_timesteps: int = 10000000
+-     """total timesteps of the experiments"""
+--    learning_rate: float = 0.00025
+-+    learning_rate: float = 0.0001
+-     """the learning rate of the optimizer"""
+-     num_envs: int = 1
+-     """the number of parallel game environments"""
+-@@ -63,7 +63,7 @@ class Args:
+-     """the discount factor gamma"""
+-     tau: float = 1.0
+-     """the target network update rate"""
+--    target_network_frequency: int = 10000
+-+    target_network_frequency: int = 1000
+-     """the timesteps it takes to update the target network"""
+-     batch_size: int = 32
+-     """the batch size of sample from the reply memory"""
+-@@ -73,7 +73,7 @@ class Args:
+-     """the ending epsilon for exploration"""
+-     exploration_fraction: float = 0.10
+-     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
+--    learning_starts: int = 100000
+-+    learning_starts: int = 80000
+-     """timestep to start learning"""
+-     train_frequency: int = 4
+-     """the frequency of training"""
+-diff --git a/cleanrl/ppo_atari.py b/cleanrl/ppo_atari.py
+-index f1b21d2..7b8cbcd 100644
+---- a/cleanrl/ppo_atari.py
+-+++ b/cleanrl/ppo_atari.py
+-@@ -32,13 +32,13 @@ class Args:
+-     """if toggled, `torch.backends.cudnn.deterministic=False`"""
+-     cuda: bool = True
+-     """if toggled, cuda will be enabled by default"""
+--    track: bool = False
+-+    track: bool = True
+-     """if toggled, this experiment will be tracked with Weights and Biases"""
+--    wandb_project_name: str = "cleanRL"
+-+    wandb_project_name: str = "cleanrl_ppo_atari"
+-     """the wandb's project name"""
+-     wandb_entity: str = None
+-     """the entity (team) of wandb's project"""
+--    capture_video: bool = False
+-+    capture_video: bool = True
+-     """whether to capture videos of the agent performances (check out `videos` folder)"""
+- 
+-     # Algorithm specific arguments
+-@@ -325,5 +325,20 @@ if __name__ == "__main__":
+-         print("SPS:", int(global_step / (time.time() - start_time)))
+-         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+- 
+-+    # --- NEW: SAVE MODEL BLOCK ---
+-+    save_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+-+    # Ensure directory exists (usually done by SummaryWriter, but purely for safety)
+-+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+-+    
+-+    torch.save(agent.state_dict(), save_path)
+-+    print(f"Model saved to {save_path}")
+-+
+-+    if args.track:
+-+        import wandb
+-+        artifact = wandb.Artifact(f"model-{args.env_id}", type="model")
+-+        artifact.add_file(save_path)
+-+        wandb.log_artifact(artifact)
+-+    # -----------------------------
+-+
+-     envs.close()
+--    writer.close()
+-+    writer.close()
+-\ No newline at end of file
+-diff --git a/cleanrl/rainbow_atari.py b/cleanrl/rainbow_atari.py
+-index 71e5a15..4a8887b 100644
+---- a/cleanrl/rainbow_atari.py
+-+++ b/cleanrl/rainbow_atari.py
+-@@ -41,7 +41,7 @@ class Args:
+-     """the wandb's project name"""
+-     wandb_entity: str = None
+-     """the entity (team) of wandb's project"""
+--    capture_video: bool = False
+-+    capture_video: bool = True
+-     """whether to capture videos of the agent performances (check out `videos` folder)"""
+-     save_model: bool = False
+-     """whether to save model into the `runs/{run_name}` folder"""
+-@@ -58,7 +58,7 @@ class Args:
+-     """the learning rate of the optimizer"""
+-     num_envs: int = 1
+-     """the number of parallel game environments"""
+--    buffer_size: int = 1000000
+-+    buffer_size: int = 500000
+-     """the replay memory buffer size"""
+-     gamma: float = 0.99
+-     """the discount factor gamma"""
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_0_63796348ff3963c3eca6.mp4 b/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_0_63796348ff3963c3eca6.mp4
+deleted file mode 100644
+index 89a4ad9..0000000
+Binary files a/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_0_63796348ff3963c3eca6.mp4 and /dev/null differ
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_9_8e67b6968acd926dc3ec.mp4 b/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_9_8e67b6968acd926dc3ec.mp4
+deleted file mode 100644
+index e490574..0000000
+Binary files a/wandb/run-20251206_141845-4ztow9j4/files/media/videos/videos_9_8e67b6968acd926dc3ec.mp4 and /dev/null differ
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/requirements.txt b/wandb/run-20251206_141845-4ztow9j4/files/requirements.txt
+deleted file mode 100644
+index 763f5e3..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/requirements.txt
++++ /dev/null
+@@ -1,86 +0,0 @@
+-absl-py==1.4.0
+-ale-py==0.8.1
+-appdirs==1.4.4
+-autorom-accept-rom-license==0.6.1
+-autorom==0.4.2
+-cachetools==5.3.0
+-certifi==2023.5.7
+-cfgv==3.3.1
+-charset-normalizer==3.1.0
+-cleanrl==2.0.0b1
+-click==8.1.3
+-cloudpickle==2.2.1
+-colorama==0.4.4
+-commonmark==0.9.1
+-decorator==4.4.2
+-distlib==0.3.6
+-docker-pycreds==0.4.0
+-docstring-parser==0.15
+-farama-notifications==0.0.4
+-filelock==3.12.0
+-fsspec==2025.5.1
+-gitdb==4.0.10
+-gitpython==3.1.31
+-google-auth-oauthlib==0.4.6
+-google-auth==2.18.0
+-grpcio==1.54.0
+-gym-notices==0.0.8
+-gym==0.23.1
+-gymnasium==0.29.1
+-huggingface-hub==0.11.1
+-identify==2.5.24
+-idna==3.4
+-imageio-ffmpeg==0.3.0
+-imageio==2.28.1
+-importlib-resources==5.12.0
+-jinja2==3.1.2
+-markdown==3.3.7
+-markupsafe==2.1.2
+-moviepy==1.0.3
+-mpmath==1.3.0
+-networkx==3.4.2
+-nodeenv==1.7.0
+-numpy==1.24.4
+-oauthlib==3.2.2
+-opencv-python==4.7.0.72
+-packaging==23.1
+-pathtools==0.1.2
+-pillow==9.5.0
+-pip==25.3
+-platformdirs==3.5.0
+-pre-commit==2.21.0
+-proglog==0.1.10
+-protobuf==3.20.3
+-psutil==5.9.5
+-pyasn1-modules==0.3.0
+-pyasn1==0.5.0
+-pygame==2.1.0
+-pygments==2.15.1
+-pyyaml==6.0.1
+-requests-oauthlib==1.3.1
+-requests==2.30.0
+-rich==11.2.0
+-rsa==4.7.2
+-sentry-sdk==1.22.2
+-setproctitle==1.3.2
+-setuptools==67.7.2
+-shimmy==1.1.0
+-shtab==1.6.4
+-six==1.16.0
+-smmap==5.0.0
+-sympy==1.14.0
+-tenacity==8.2.3
+-tensorboard-data-server==0.6.1
+-tensorboard-plugin-wit==1.8.1
+-tensorboard==2.11.2
+-torch==2.4.1+cu121
+-torchaudio==2.4.1+cu121
+-torchvision==0.19.1+cu121
+-tqdm==4.65.0
+-typing-extensions==4.14.1
+-tyro==0.5.10
+-urllib3==1.26.15
+-virtualenv==20.21.0
+-wandb==0.13.11
+-werkzeug==2.2.3
+-wheel==0.40.0
+\ No newline at end of file
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/wandb-metadata.json b/wandb/run-20251206_141845-4ztow9j4/files/wandb-metadata.json
+deleted file mode 100644
+index 7f6c816..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/wandb-metadata.json
++++ /dev/null
+@@ -1,50 +0,0 @@
+-{
+-    "os": "Windows-10-10.0.19045-SP0",
+-    "python": "3.10.0",
+-    "heartbeatAt": "2025-12-06T19:18:45.844595",
+-    "startedAt": "2025-12-06T19:18:45.032126",
+-    "docker": null,
+-    "cuda": null,
+-    "args": [],
+-    "state": "running",
+-    "program": "C:\\Users\\godin\\OneDrive\\Bureau\\cleanrl\\cleanrl\\ppo_atari.py",
+-    "codePath": "cleanrl\\ppo_atari.py",
+-    "git": {
+-        "remote": "https://github.com/Lowcol/cleanrl.git",
+-        "commit": "a49418e9cd68e9d8a4159b13801b6e2d4313100b"
+-    },
+-    "email": "antoine.godin.1@ens.etsmtl.ca",
+-    "root": "C:/Users/godin/OneDrive/Bureau/cleanrl",
+-    "host": "DESKTOP-4BFTBQC",
+-    "username": "godin",
+-    "executable": "C:\\Users\\godin\\anaconda3\\envs\\cleanRL\\python.exe",
+-    "cpu_count": 8,
+-    "cpu_count_logical": 8,
+-    "cpu_freq": {
+-        "current": 3600.0,
+-        "min": 0.0,
+-        "max": 3600.0
+-    },
+-    "cpu_freq_per_core": [
+-        {
+-            "current": 3600.0,
+-            "min": 0.0,
+-            "max": 3600.0
+-        }
+-    ],
+-    "disk": {
+-        "total": 952.6542930603027,
+-        "used": 401.21782302856445
+-    },
+-    "gpu": "NVIDIA GeForce RTX 2060",
+-    "gpu_count": 1,
+-    "gpu_devices": [
+-        {
+-            "name": "NVIDIA GeForce RTX 2060",
+-            "memory_total": 6442450944
+-        }
+-    ],
+-    "memory": {
+-        "total": 15.920894622802734
+-    }
+-}
+diff --git a/wandb/run-20251206_141845-4ztow9j4/files/wandb-summary.json b/wandb/run-20251206_141845-4ztow9j4/files/wandb-summary.json
+deleted file mode 100644
+index 3e1fec2..0000000
+--- a/wandb/run-20251206_141845-4ztow9j4/files/wandb-summary.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"videos": {"_type": "video-file", "sha256": "8e67b6968acd926dc3ec929aa0e77d5066a3d893395e180af7205278672ba055", "size": 469924, "path": "media/videos/videos_9_8e67b6968acd926dc3ec.mp4"}, "_timestamp": 1765056989.8521814, "_runtime": 8264.799898386002, "_step": 9, "_wandb": {"runtime": 14504}}
+\ No newline at end of file
+diff --git a/wandb/run-20251206_141845-4ztow9j4/run-4ztow9j4.wandb b/wandb/run-20251206_141845-4ztow9j4/run-4ztow9j4.wandb
+deleted file mode 100644
+index 067e5f6..0000000
+Binary files a/wandb/run-20251206_141845-4ztow9j4/run-4ztow9j4.wandb and /dev/null differ
