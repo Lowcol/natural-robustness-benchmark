@@ -17,6 +17,7 @@ from atari_wrappers import (  # isort:skip
     ClipRewardEnv,
     EpisodicLifeEnv,
     FireResetEnv,
+    GaussianNoiseWrapper,
     MaxAndSkipEnv,
     NaturalBackgroundWrapper,
     NoopResetEnv,
@@ -43,6 +44,8 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     natural_video_folder: str = None
     """path to folder containing background videos for natural variant"""
+    gaussian_noise: bool = False
+    """if toggled, add Gaussian noise (std=50) to observations"""
 
     # Algorithm specific arguments
     env_id: str = "BreakoutNoFrameskip-v4"
@@ -89,7 +92,7 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
 
-def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
+def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
@@ -107,6 +110,10 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None):
         # Add natural background wrapper BEFORE resizing and grayscaling
         if natural_video_folder is not None:
             env = NaturalBackgroundWrapper(env, natural_video_folder)
+        
+        # Add Gaussian noise if requested
+        if gaussian_noise:
+            env = GaussianNoiseWrapper(env, std=50)
         
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
@@ -185,7 +192,17 @@ if __name__ == "__main__":
 
     # env setup
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.natural_video_folder) for i in range(args.num_envs)],
+        [
+            make_env(
+                args.env_id,
+                i,
+                args.capture_video,
+                run_name,
+                args.natural_video_folder,
+                args.gaussian_noise,
+            )
+            for i in range(args.num_envs)
+        ],
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
