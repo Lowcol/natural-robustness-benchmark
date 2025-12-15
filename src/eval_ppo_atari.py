@@ -33,7 +33,7 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    capture_video: bool = True
+    capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     
     # Evaluation specific arguments
@@ -43,7 +43,7 @@ class Args:
     """the id of the environment"""
     num_episodes: int = 30
     """number of episodes to evaluate"""
-    natural_video_folder: str = None
+    natural_video_folder: str = "video-David"
     """path to folder containing background videos for natural variant (None for standard env)"""
     deterministic: bool = False
     """if toggled, use deterministic actions (argmax) instead of sampling"""
@@ -209,7 +209,10 @@ if __name__ == "__main__":
     # Print summary statistics
     print("-" * 50)
     print("Evaluation Summary:")
-    print(f"Mean Reward: {np.mean(episode_rewards):.2f} ± {np.std(episode_rewards):.2f}")
+    mean_reward = np.mean(episode_rewards)
+    std_reward = np.std(episode_rewards)
+    print(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
+    print(f"  Range: [{mean_reward - std_reward:.2f}, {mean_reward + std_reward:.2f}]")
     print(f"Mean Length: {np.mean(episode_lengths):.2f} ± {np.std(episode_lengths):.2f}")
     print(f"Min Reward: {np.min(episode_rewards):.2f}")
     print(f"Max Reward: {np.max(episode_rewards):.2f}")

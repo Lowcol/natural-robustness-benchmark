@@ -94,11 +94,7 @@ class Args:
 
 def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
     def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_id)
+        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
@@ -114,6 +110,12 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, ga
         # Add Gaussian noise if requested
         if gaussian_noise:
             env = GaussianNoiseWrapper(env, std=50)
+
+        # Ensure recorded video captures augmented visuals at correct speed
+        if capture_video and env.metadata.get("render_fps") in (None, 0):
+            env.metadata["render_fps"] = 15  # 60 FPS base with 4-frame skip
+        if capture_video and idx == 0:
+            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
@@ -349,6 +351,19 @@ if __name__ == "__main__":
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+    # Save model
+    save_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(agent.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
+
+    if args.track:
+        import wandb
+
+        artifact = wandb.Artifact(f"model-{args.env_id}", type="model")
+        artifact.add_file(save_path)
+        wandb.log_artifact(artifact)
 
     envs.close()
     writer.close()

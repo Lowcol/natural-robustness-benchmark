@@ -249,18 +249,15 @@ if __name__ == "__main__":
             obs[step] = next_obs
             dones[step] = next_done
 
-            # ALGO LOGIC: action logic
+            # ALGO LOGIC: action logic (NO RAD DURING ROLLOUT)
             with torch.no_grad():
-                # --- APPLY RAD (Random Crop) ---
-                # We crop the observation BEFORE the agent sees it
-                aug_obs = rad_random_crop(next_obs)
-                # Optionally log a sample of raw vs augmented for env 0 (once)
+                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                # Optional: visualize what RAD would do (does not affect rollout)
                 if args.log_aug_samples and not logged_aug_vis:
                     raw_img = next_obs[0].detach().cpu()
-                    aug_img = aug_obs[0].detach().cpu()
+                    aug_img = rad_random_crop(next_obs)[0].detach().cpu()
 
                     def to_chw(img):
-                        # If channels are last, move them to CHW for TensorBoard
                         if img.ndim == 3 and img.shape[0] not in (1, 3, 4):
                             img = img.permute(2, 0, 1)
                         return img
@@ -269,8 +266,6 @@ if __name__ == "__main__":
                     writer.add_image("debug/aug_obs_env0", to_chw(aug_img) / 255.0, global_step)
                     logged_aug_vis = True
 
-                action, logprob, _, value = agent.get_action_and_value(aug_obs)
-                # -------------------------------
                 values[step] = value.flatten()
             actions[step] = action
             logprobs[step] = logprob
@@ -297,9 +292,8 @@ if __name__ == "__main__":
 
         # bootstrap value if not done
         with torch.no_grad():
-            # Apply RAD for value bootstrapping too (optional but recommended for consistency)
-            aug_next_obs = rad_random_crop(next_obs)
-            next_value = agent.get_value(aug_next_obs).reshape(1, -1)
+            # Bootstrap on raw observations (no RAD during collection)
+            next_value = agent.get_value(next_obs).reshape(1, -1)
             
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
