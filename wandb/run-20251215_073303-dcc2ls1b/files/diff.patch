@@ -1,0 +1,239 @@
+diff --git a/eval-noNoise/no-rad/evaluation_results.png b/eval-noNoise/no-rad/evaluation_results.png
+deleted file mode 100644
+index bb5bdea..0000000
+Binary files a/eval-noNoise/no-rad/evaluation_results.png and /dev/null differ
+diff --git a/eval-noNoise/no-rad/rl-video-episode-0.meta.json b/eval-noNoise/no-rad/rl-video-episode-0.meta.json
+deleted file mode 100644
+index 03b3865..0000000
+--- a/eval-noNoise/no-rad/rl-video-episode-0.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 0, "episode_id": 0, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/no-rad/rl-video-episode-0.mp4 b/eval-noNoise/no-rad/rl-video-episode-0.mp4
+deleted file mode 100644
+index 77dafe7..0000000
+Binary files a/eval-noNoise/no-rad/rl-video-episode-0.mp4 and /dev/null differ
+diff --git a/eval-noNoise/no-rad/rl-video-episode-1.meta.json b/eval-noNoise/no-rad/rl-video-episode-1.meta.json
+deleted file mode 100644
+index 12daa54..0000000
+--- a/eval-noNoise/no-rad/rl-video-episode-1.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 2251, "episode_id": 1, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/no-rad/rl-video-episode-1.mp4 b/eval-noNoise/no-rad/rl-video-episode-1.mp4
+deleted file mode 100644
+index 12b8c3f..0000000
+Binary files a/eval-noNoise/no-rad/rl-video-episode-1.mp4 and /dev/null differ
+diff --git a/eval-noNoise/no-rad/rl-video-episode-27.meta.json b/eval-noNoise/no-rad/rl-video-episode-27.meta.json
+deleted file mode 100644
+index 1b7158a..0000000
+--- a/eval-noNoise/no-rad/rl-video-episode-27.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 73574, "episode_id": 27, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/no-rad/rl-video-episode-27.mp4 b/eval-noNoise/no-rad/rl-video-episode-27.mp4
+deleted file mode 100644
+index 9f66e72..0000000
+Binary files a/eval-noNoise/no-rad/rl-video-episode-27.mp4 and /dev/null differ
+diff --git a/eval-noNoise/no-rad/rl-video-episode-8.meta.json b/eval-noNoise/no-rad/rl-video-episode-8.meta.json
+deleted file mode 100644
+index 6643706..0000000
+--- a/eval-noNoise/no-rad/rl-video-episode-8.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 20378, "episode_id": 8, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/no-rad/rl-video-episode-8.mp4 b/eval-noNoise/no-rad/rl-video-episode-8.mp4
+deleted file mode 100644
+index 17331df..0000000
+Binary files a/eval-noNoise/no-rad/rl-video-episode-8.mp4 and /dev/null differ
+diff --git a/eval-noNoise/rad-trained/evaluation_results.png b/eval-noNoise/rad-trained/evaluation_results.png
+deleted file mode 100644
+index de6c073..0000000
+Binary files a/eval-noNoise/rad-trained/evaluation_results.png and /dev/null differ
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-0.meta.json b/eval-noNoise/rad-trained/rl-video-episode-0.meta.json
+deleted file mode 100644
+index 03b3865..0000000
+--- a/eval-noNoise/rad-trained/rl-video-episode-0.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 0, "episode_id": 0, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-0.mp4 b/eval-noNoise/rad-trained/rl-video-episode-0.mp4
+deleted file mode 100644
+index de92a23..0000000
+Binary files a/eval-noNoise/rad-trained/rl-video-episode-0.mp4 and /dev/null differ
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-1.meta.json b/eval-noNoise/rad-trained/rl-video-episode-1.meta.json
+deleted file mode 100644
+index e37cc8d..0000000
+--- a/eval-noNoise/rad-trained/rl-video-episode-1.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 1130, "episode_id": 1, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-1.mp4 b/eval-noNoise/rad-trained/rl-video-episode-1.mp4
+deleted file mode 100644
+index d8c88f0..0000000
+Binary files a/eval-noNoise/rad-trained/rl-video-episode-1.mp4 and /dev/null differ
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-27.meta.json b/eval-noNoise/rad-trained/rl-video-episode-27.meta.json
+deleted file mode 100644
+index 6de7008..0000000
+--- a/eval-noNoise/rad-trained/rl-video-episode-27.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 46954, "episode_id": 27, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-27.mp4 b/eval-noNoise/rad-trained/rl-video-episode-27.mp4
+deleted file mode 100644
+index f05973f..0000000
+Binary files a/eval-noNoise/rad-trained/rl-video-episode-27.mp4 and /dev/null differ
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-8.meta.json b/eval-noNoise/rad-trained/rl-video-episode-8.meta.json
+deleted file mode 100644
+index d25bb41..0000000
+--- a/eval-noNoise/rad-trained/rl-video-episode-8.meta.json
++++ /dev/null
+@@ -1 +0,0 @@
+-{"step_id": 13142, "episode_id": 8, "content_type": "video/mp4"}
+\ No newline at end of file
+diff --git a/eval-noNoise/rad-trained/rl-video-episode-8.mp4 b/eval-noNoise/rad-trained/rl-video-episode-8.mp4
+deleted file mode 100644
+index 80ae267..0000000
+Binary files a/eval-noNoise/rad-trained/rl-video-episode-8.mp4 and /dev/null differ
+diff --git a/runs/normal_ppo_david/events.out.tfevents.1765641094.DESKTOP-4BFTBQC.8736.0 b/runs/normal_ppo_david/events.out.tfevents.1765641094.DESKTOP-4BFTBQC.8736.0
+deleted file mode 100644
+index 79ba06c..0000000
+Binary files a/runs/normal_ppo_david/events.out.tfevents.1765641094.DESKTOP-4BFTBQC.8736.0 and /dev/null differ
+diff --git a/src/eval_ppo_atari.py b/src/eval_ppo_atari.py
+index d84ac36..7dddaa5 100644
+--- a/src/eval_ppo_atari.py
++++ b/src/eval_ppo_atari.py
+@@ -33,7 +33,7 @@ class Args:
+     """if toggled, `torch.backends.cudnn.deterministic=False`"""
+     cuda: bool = True
+     """if toggled, cuda will be enabled by default"""
+-    capture_video: bool = True
++    capture_video: bool = False
+     """whether to capture videos of the agent performances (check out `videos` folder)"""
+     
+     # Evaluation specific arguments
+@@ -43,7 +43,7 @@ class Args:
+     """the id of the environment"""
+     num_episodes: int = 30
+     """number of episodes to evaluate"""
+-    natural_video_folder: str = None
++    natural_video_folder: str = "video-David"
+     """path to folder containing background videos for natural variant (None for standard env)"""
+     deterministic: bool = False
+     """if toggled, use deterministic actions (argmax) instead of sampling"""
+@@ -209,7 +209,10 @@ if __name__ == "__main__":
+     # Print summary statistics
+     print("-" * 50)
+     print("Evaluation Summary:")
+-    print(f"Mean Reward: {np.mean(episode_rewards):.2f} ± {np.std(episode_rewards):.2f}")
++    mean_reward = np.mean(episode_rewards)
++    std_reward = np.std(episode_rewards)
++    print(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
++    print(f"  Range: [{mean_reward - std_reward:.2f}, {mean_reward + std_reward:.2f}]")
+     print(f"Mean Length: {np.mean(episode_lengths):.2f} ± {np.std(episode_lengths):.2f}")
+     print(f"Min Reward: {np.min(episode_rewards):.2f}")
+     print(f"Max Reward: {np.max(episode_rewards):.2f}")
+diff --git a/src/ppo_atari.py b/src/ppo_atari.py
+index f977589..b23fd5c 100644
+--- a/src/ppo_atari.py
++++ b/src/ppo_atari.py
+@@ -94,11 +94,7 @@ class Args:
+ 
+ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
+     def thunk():
+-        if capture_video and idx == 0:
+-            env = gym.make(env_id, render_mode="rgb_array")
+-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+-        else:
+-            env = gym.make(env_id)
++        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
+         env = gym.wrappers.RecordEpisodeStatistics(env)
+         env = NoopResetEnv(env, noop_max=30)
+         env = MaxAndSkipEnv(env, skip=4)
+@@ -114,6 +110,12 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, ga
+         # Add Gaussian noise if requested
+         if gaussian_noise:
+             env = GaussianNoiseWrapper(env, std=50)
++
++        # Ensure recorded video captures augmented visuals at correct speed
++        if capture_video and env.metadata.get("render_fps") in (None, 0):
++            env.metadata["render_fps"] = 15  # 60 FPS base with 4-frame skip
++        if capture_video and idx == 0:
++            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+         
+         env = gym.wrappers.ResizeObservation(env, (84, 84))
+         env = gym.wrappers.GrayScaleObservation(env)
+@@ -350,5 +352,18 @@ if __name__ == "__main__":
+         print("SPS:", int(global_step / (time.time() - start_time)))
+         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+ 
++    # Save model
++    save_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
++    os.makedirs(os.path.dirname(save_path), exist_ok=True)
++    torch.save(agent.state_dict(), save_path)
++    print(f"Model saved to {save_path}")
++
++    if args.track:
++        import wandb
++
++        artifact = wandb.Artifact(f"model-{args.env_id}", type="model")
++        artifact.add_file(save_path)
++        wandb.log_artifact(artifact)
++
+     envs.close()
+     writer.close()
+diff --git a/src/train_natural_rad.py b/src/train_natural_rad.py
+index 5e7f5e8..c5057b9 100644
+--- a/src/train_natural_rad.py
++++ b/src/train_natural_rad.py
+@@ -249,18 +249,15 @@ if __name__ == "__main__":
+             obs[step] = next_obs
+             dones[step] = next_done
+ 
+-            # ALGO LOGIC: action logic
++            # ALGO LOGIC: action logic (NO RAD DURING ROLLOUT)
+             with torch.no_grad():
+-                # --- APPLY RAD (Random Crop) ---
+-                # We crop the observation BEFORE the agent sees it
+-                aug_obs = rad_random_crop(next_obs)
+-                # Optionally log a sample of raw vs augmented for env 0 (once)
++                action, logprob, _, value = agent.get_action_and_value(next_obs)
++                # Optional: visualize what RAD would do (does not affect rollout)
+                 if args.log_aug_samples and not logged_aug_vis:
+                     raw_img = next_obs[0].detach().cpu()
+-                    aug_img = aug_obs[0].detach().cpu()
++                    aug_img = rad_random_crop(next_obs)[0].detach().cpu()
+ 
+                     def to_chw(img):
+-                        # If channels are last, move them to CHW for TensorBoard
+                         if img.ndim == 3 and img.shape[0] not in (1, 3, 4):
+                             img = img.permute(2, 0, 1)
+                         return img
+@@ -269,8 +266,6 @@ if __name__ == "__main__":
+                     writer.add_image("debug/aug_obs_env0", to_chw(aug_img) / 255.0, global_step)
+                     logged_aug_vis = True
+ 
+-                action, logprob, _, value = agent.get_action_and_value(aug_obs)
+-                # -------------------------------
+                 values[step] = value.flatten()
+             actions[step] = action
+             logprobs[step] = logprob
+@@ -297,9 +292,8 @@ if __name__ == "__main__":
+ 
+         # bootstrap value if not done
+         with torch.no_grad():
+-            # Apply RAD for value bootstrapping too (optional but recommended for consistency)
+-            aug_next_obs = rad_random_crop(next_obs)
+-            next_value = agent.get_value(aug_next_obs).reshape(1, -1)
++            # Bootstrap on raw observations (no RAD during collection)
++            next_value = agent.get_value(next_obs).reshape(1, -1)
+             
+             advantages = torch.zeros_like(rewards).to(device)
+             lastgaelam = 0

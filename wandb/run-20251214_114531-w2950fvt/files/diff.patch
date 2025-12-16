@@ -1,0 +1,30 @@
+diff --git a/src/ppo_atari.py b/src/ppo_atari.py
+index f977589..3260106 100644
+--- a/src/ppo_atari.py
++++ b/src/ppo_atari.py
+@@ -94,11 +94,7 @@ class Args:
+ 
+ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
+     def thunk():
+-        if capture_video and idx == 0:
+-            env = gym.make(env_id, render_mode="rgb_array")
+-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+-        else:
+-            env = gym.make(env_id)
++        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
+         env = gym.wrappers.RecordEpisodeStatistics(env)
+         env = NoopResetEnv(env, noop_max=30)
+         env = MaxAndSkipEnv(env, skip=4)
+@@ -114,6 +110,12 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, ga
+         # Add Gaussian noise if requested
+         if gaussian_noise:
+             env = GaussianNoiseWrapper(env, std=50)
++
++        # Ensure recorded video captures augmented visuals at correct speed
++        if capture_video and env.metadata.get("render_fps") in (None, 0):
++            env.metadata["render_fps"] = 15  # 60 FPS base with 4-frame skip
++        if capture_video and idx == 0:
++            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+         
+         env = gym.wrappers.ResizeObservation(env, (84, 84))
+         env = gym.wrappers.GrayScaleObservation(env)

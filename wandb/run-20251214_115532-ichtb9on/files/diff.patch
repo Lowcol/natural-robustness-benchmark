@@ -1,0 +1,78 @@
+diff --git a/src/ppo_atari.py b/src/ppo_atari.py
+index f977589..3260106 100644
+--- a/src/ppo_atari.py
++++ b/src/ppo_atari.py
+@@ -94,11 +94,7 @@ class Args:
+ 
+ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, gaussian_noise=False):
+     def thunk():
+-        if capture_video and idx == 0:
+-            env = gym.make(env_id, render_mode="rgb_array")
+-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+-        else:
+-            env = gym.make(env_id)
++        env = gym.make(env_id, render_mode="rgb_array") if capture_video and idx == 0 else gym.make(env_id)
+         env = gym.wrappers.RecordEpisodeStatistics(env)
+         env = NoopResetEnv(env, noop_max=30)
+         env = MaxAndSkipEnv(env, skip=4)
+@@ -114,6 +110,12 @@ def make_env(env_id, idx, capture_video, run_name, natural_video_folder=None, ga
+         # Add Gaussian noise if requested
+         if gaussian_noise:
+             env = GaussianNoiseWrapper(env, std=50)
++
++        # Ensure recorded video captures augmented visuals at correct speed
++        if capture_video and env.metadata.get("render_fps") in (None, 0):
++            env.metadata["render_fps"] = 15  # 60 FPS base with 4-frame skip
++        if capture_video and idx == 0:
++            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+         
+         env = gym.wrappers.ResizeObservation(env, (84, 84))
+         env = gym.wrappers.GrayScaleObservation(env)
+diff --git a/src/train_natural_rad.py b/src/train_natural_rad.py
+index 5e7f5e8..c5057b9 100644
+--- a/src/train_natural_rad.py
++++ b/src/train_natural_rad.py
+@@ -249,18 +249,15 @@ if __name__ == "__main__":
+             obs[step] = next_obs
+             dones[step] = next_done
+ 
+-            # ALGO LOGIC: action logic
++            # ALGO LOGIC: action logic (NO RAD DURING ROLLOUT)
+             with torch.no_grad():
+-                # --- APPLY RAD (Random Crop) ---
+-                # We crop the observation BEFORE the agent sees it
+-                aug_obs = rad_random_crop(next_obs)
+-                # Optionally log a sample of raw vs augmented for env 0 (once)
++                action, logprob, _, value = agent.get_action_and_value(next_obs)
++                # Optional: visualize what RAD would do (does not affect rollout)
+                 if args.log_aug_samples and not logged_aug_vis:
+                     raw_img = next_obs[0].detach().cpu()
+-                    aug_img = aug_obs[0].detach().cpu()
++                    aug_img = rad_random_crop(next_obs)[0].detach().cpu()
+ 
+                     def to_chw(img):
+-                        # If channels are last, move them to CHW for TensorBoard
+                         if img.ndim == 3 and img.shape[0] not in (1, 3, 4):
+                             img = img.permute(2, 0, 1)
+                         return img
+@@ -269,8 +266,6 @@ if __name__ == "__main__":
+                     writer.add_image("debug/aug_obs_env0", to_chw(aug_img) / 255.0, global_step)
+                     logged_aug_vis = True
+ 
+-                action, logprob, _, value = agent.get_action_and_value(aug_obs)
+-                # -------------------------------
+                 values[step] = value.flatten()
+             actions[step] = action
+             logprobs[step] = logprob
+@@ -297,9 +292,8 @@ if __name__ == "__main__":
+ 
+         # bootstrap value if not done
+         with torch.no_grad():
+-            # Apply RAD for value bootstrapping too (optional but recommended for consistency)
+-            aug_next_obs = rad_random_crop(next_obs)
+-            next_value = agent.get_value(aug_next_obs).reshape(1, -1)
++            # Bootstrap on raw observations (no RAD during collection)
++            next_value = agent.get_value(next_obs).reshape(1, -1)
+             
+             advantages = torch.zeros_like(rewards).to(device)
+             lastgaelam = 0
