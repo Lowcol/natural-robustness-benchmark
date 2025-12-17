@@ -43,7 +43,7 @@ class Args:
     """the id of the environment"""
     num_episodes: int = 30
     """number of episodes to evaluate"""
-    natural_video_folder: str = "video-David"
+    natural_video_folder: str = "video-evaluation"
     """path to folder containing background videos for natural variant (None for standard env)"""
     deterministic: bool = False
     """if toggled, use deterministic actions (argmax) instead of sampling"""

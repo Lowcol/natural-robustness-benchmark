@@ -42,7 +42,7 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    natural_video_folder: str = None
+    natural_video_folder: str = "video-training"
     """path to folder containing background videos for natural variant"""
     log_aug_samples: bool = True
     """if toggled, log a sample of raw vs augmented observations to TensorBoard"""

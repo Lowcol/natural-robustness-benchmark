@@ -208,3 +208,13 @@ __marimo__/
 
 # Weights & Biases - ignore media files in run directories
 wandb/run-*/files/media/
+
+videos-Kinetis/
+video-evaluation/
+video-training/
+
+video-evaluation/
+video-training/
+videos-training/
+videos-training-rad/
+videos/

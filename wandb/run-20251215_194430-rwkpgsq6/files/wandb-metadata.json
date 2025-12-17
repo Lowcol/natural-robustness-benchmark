@@ -1,0 +1,50 @@
+{
+    "os": "Windows-10-10.0.19045-SP0",
+    "python": "3.10.0",
+    "heartbeatAt": "2025-12-16T00:44:31.476067",
+    "startedAt": "2025-12-16T00:44:30.422451",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "C:\\Users\\godin\\OneDrive\\Bureau\\natural-robustness-benchmark\\src\\train_natural_rad.py",
+    "codePath": "src\\train_natural_rad.py",
+    "git": {
+        "remote": "https://github.com/Lowcol/natural-robustness-benchmark.git",
+        "commit": "e5cbe7ac8c74de0f3e2535793a821be71b953885"
+    },
+    "email": "antoine.godin.1@ens.etsmtl.ca",
+    "root": "C:/Users/godin/OneDrive/Bureau/natural-robustness-benchmark",
+    "host": "DESKTOP-4BFTBQC",
+    "username": "godin",
+    "executable": "C:\\Users\\godin\\anaconda3\\envs\\cleanRL\\python.exe",
+    "cpu_count": 8,
+    "cpu_count_logical": 8,
+    "cpu_freq": {
+        "current": 3600.0,
+        "min": 0.0,
+        "max": 3600.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3600.0,
+            "min": 0.0,
+            "max": 3600.0
+        }
+    ],
+    "disk": {
+        "total": 952.6542930603027,
+        "used": 365.0809860229492
+    },
+    "gpu": "NVIDIA GeForce RTX 2060",
+    "gpu_count": 1,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 2060",
+            "memory_total": 6442450944
+        }
+    ],
+    "memory": {
+        "total": 15.920894622802734
+    }
+}
